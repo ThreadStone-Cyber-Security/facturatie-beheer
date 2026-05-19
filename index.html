@@ -193,18 +193,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         Dashboard
       </div>
-      <div class="nav-item" onclick="showTab('mapping')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18"/></svg>
-        Kolom mapping
-      </div>
-      <div class="nav-item" onclick="showTab('validatie')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        Validatieregels
-      </div>
-      <div class="nav-item" onclick="showTab('producten')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
-        Producten
-      </div>
+
       <div class="nav-item" onclick="showTab('regels')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
         Abonnementsregels
@@ -320,8 +309,8 @@ async function loadProducenten() {
 // ── Tab routing ──────────────────────────────────────────────────────────────
 function showTab(tab) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[['dashboard','mapping','validatie','producten','regels','sync'].indexOf(tab)]?.classList.add('active');
-  const titles = { dashboard: 'Dashboard', mapping: 'Kolom mapping', validatie: 'Validatieregels', producten: 'Producten', regels: 'Abonnementsregels', sync: 'AFAS Sync' };
+  document.querySelectorAll('.nav-item')[['dashboard','regels','sync'].indexOf(tab)]?.classList.add('active');
+  const titles = { dashboard: 'Dashboard', regels: 'Abonnementsregels', sync: 'AFAS Sync' };
   document.getElementById('pageTitle').textContent = titles[tab];
   document.getElementById('topActions').innerHTML = '';
   if (tab === 'dashboard') renderDashboard();
@@ -335,47 +324,115 @@ function showTab(tab) {
 // ── Dashboard ────────────────────────────────────────────────────────────────
 async function renderDashboard() {
   const c = document.getElementById('mainContent');
-  c.innerHTML = '<div class="loader"><div class="spinner"></div> Statistieken laden...</div>';
-  try {
-    const [mapData, valData] = await Promise.all([
-      graph('GET', `/sites/${siteId}/lists/MappingRegels/items?$expand=fields&$top=500`),
-      graph('GET', `/sites/${siteId}/lists/Validatieregels/items?$expand=fields&$top=100`),
-    ]);
-    const mappings = mapData.value || [];
-    const csvProds = producten.filter(p => p.brontype === 'CSV / Excel');
-    const metMapping = [...new Set(mappings.map(m => m.fields.Product))].length;
-    const zonderMapping = csvProds.filter(p => !mappings.find(m => m.fields.Product === p.naam)).length;
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Dashboard laden...</div>';
 
+  // Use cached regels if available, otherwise show prompt
+  const regels = alleRegels;
+  const heeftData = regels.length > 0;
+
+  if (!heeftData) {
     c.innerHTML = `
-      <div class="stats-grid">
-        <div class="stat-card"><div class="stat-val">${producten.length}</div><div class="stat-lbl">Producten</div></div>
-        <div class="stat-card"><div class="stat-val">${mappings.length}</div><div class="stat-lbl">Mapping regels</div></div>
-        <div class="stat-card"><div class="stat-val">${metMapping}</div><div class="stat-lbl">Producten met mapping</div></div>
-        <div class="stat-card"><div class="stat-val" style="color:${zonderMapping > 0 ? 'var(--ts-danger)' : 'var(--ts-success)'}">${zonderMapping}</div><div class="stat-lbl">Ontbrekende mappings</div></div>
-      </div>
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header"><h2>Producten overzicht</h2></div>
+      <div class="card" style="text-align:center;padding:40px">
+        <div style="font-size:32px;margin-bottom:12px">📊</div>
+        <div style="font-weight:600;font-size:15px;margin-bottom:8px">Laad eerst de abonnementsregels</div>
+        <div style="color:var(--ts-muted);font-size:13px;margin-bottom:20px">Ga naar Abonnementsregels, vul het AFAS token in en klik Laden. Dan verschijnt hier het dashboard.</div>
+        <button class="btn btn-primary" onclick="showTab('regels')">→ Naar abonnementsregels</button>
+      </div>`;
+    return;
+  }
+
+  // Compute stats
+  const totaalRegels = regels.length;
+  const uniekeKlanten = new Set(regels.map(r => r.OrganisatieId)).size;
+  const totaalAantal = regels.reduce((s, r) => s + (parseFloat(r.Aantal) || 0), 0);
+  const totaalWaarde = regels.reduce((s, r) => s + (parseFloat(r.Waarde_abonnement) || 0), 0);
+
+  // Per product totalen
+  const perProduct = {};
+  regels.forEach(r => {
+    const key = r.Itemcode || '—';
+    if (!perProduct[key]) perProduct[key] = { itemcode: key, omschrijving: r.Omschrijving || r.Regel_Omschrijving || key, klanten: new Set(), aantal: 0, waarde: 0 };
+    perProduct[key].klanten.add(r.OrganisatieId);
+    perProduct[key].aantal += parseFloat(r.Aantal) || 0;
+    perProduct[key].waarde += parseFloat(r.Waarde_abonnement) || 0;
+  });
+  const productRows = Object.values(perProduct).sort((a,b) => b.waarde - a.waarde).slice(0, 15);
+
+  // Facturatiestroom status per product uit SharePoint
+  const stroomItems = [
+    { naam: 'Threadscan',      type: 'AFAS koppeling', status: 'auto' },
+    { naam: 'SentinelOne',     type: 'AFAS koppeling', status: 'auto' },
+    { naam: 'Threadwatch',     type: 'AFAS koppeling', status: 'auto' },
+    { naam: 'Knowbe4',         type: 'CSV / Excel',    status: alleRegels.some(r => r.Itemcode?.startsWith('KB')) ? 'ok' : 'open' },
+    { naam: 'SDV',             type: 'CSV / Excel',    status: 'open' },
+    { naam: 'Awaretrain',      type: 'CSV / Excel',    status: 'open' },
+    { naam: 'Augment / TD365', type: 'CSV / Excel',    status: 'open' },
+    { naam: 'Adlumin',         type: 'CSV / Excel',    status: 'open' },
+    { naam: 'ESET',            type: 'CSV / Excel',    status: 'open' },
+    { naam: 'IVM',             type: 'Mail',           status: 'open' },
+    { naam: 'Techone factuur', type: 'Mail',           status: 'open' },
+  ];
+
+  c.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:20px">
+      <div class="stat-card"><div class="stat-val">${totaalRegels.toLocaleString('nl')}</div><div class="stat-lbl">Abonnementsregels</div></div>
+      <div class="stat-card"><div class="stat-val">${uniekeKlanten.toLocaleString('nl')}</div><div class="stat-lbl">Actieve klanten</div></div>
+      <div class="stat-card"><div class="stat-val">${Math.round(totaalAantal).toLocaleString('nl')}</div><div class="stat-lbl">Totaal seats/units</div></div>
+      <div class="stat-card"><div class="stat-val" style="font-size:18px">€${Math.round(totaalWaarde).toLocaleString('nl')}</div><div class="stat-lbl">Maandwaarde totaal</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card">
+        <div class="card-header"><h2>Top producten — maandwaarde</h2></div>
         <div class="card-body" style="padding:0">
           <table class="tbl">
-            <thead><tr><th>Product</th><th>Brontype</th><th>AFAS doorbelasting</th><th>Mapping regels</th><th>Status</th></tr></thead>
+            <thead><tr><th>Itemcode</th><th>Klanten</th><th>Seats</th><th>Maandwaarde</th></tr></thead>
             <tbody>
-              ${producten.map(p => {
-                const count = mappings.filter(m => m.fields.Product === p.naam).length;
-                const needsMapping = p.brontype === 'CSV / Excel';
-                const ok = !needsMapping || count > 0;
-                return `<tr>
-                  <td><strong>${p.naam}</strong></td>
-                  <td><span class="badge ${p.brontype === 'AFAS koppeling' ? 'badge-auto' : p.brontype === 'CSV / Excel' ? 'badge-csv' : 'badge-mail'}">${p.brontype || '—'}</span></td>
-                  <td>${p.afas || '—'}</td>
-                  <td>${needsMapping ? count + ' regel' + (count !== 1 ? 's' : '') : '<span style="color:var(--ts-muted)">n.v.t.</span>'}</td>
-                  <td><span style="color:${ok ? 'var(--ts-success)' : 'var(--ts-danger)'}; font-size:12px; font-weight:600">${ok ? '✓ OK' : '⚠ Ontbreekt'}</span></td>
-                </tr>`;
-              }).join('')}
+              ${productRows.map(p => `<tr>
+                <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${p.itemcode}</code></td>
+                <td>${p.klanten.size}</td>
+                <td>${Math.round(p.aantal).toLocaleString('nl')}</td>
+                <td style="font-weight:500">€${Math.round(p.waarde).toLocaleString('nl')}</td>
+              </tr>`).join('')}
             </tbody>
           </table>
         </div>
-      </div>`;
-  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Facturatiestroom status</h2>
+          <span style="font-size:11px;color:var(--ts-muted)">Handmatig bij te houden</span>
+        </div>
+        <div class="card-body" style="padding:0">
+          <table class="tbl">
+            <thead><tr><th>Product</th><th>Brontype</th><th>Status</th><th>Actie</th></tr></thead>
+            <tbody>
+              ${stroomItems.map(p => `<tr>
+                <td><strong>${p.naam}</strong></td>
+                <td><span class="badge ${p.type==='AFAS koppeling'?'badge-auto':p.type==='CSV / Excel'?'badge-csv':'badge-mail'}">${p.type}</span></td>
+                <td>
+                  <select onchange="updateStroomStatus('${p.naam}', this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--ts-border);border-radius:4px;background:var(--ts-white)">
+                    <option value="open" ${p.status==='open'?'selected':''}>⏳ Open</option>
+                    <option value="ok" ${p.status==='ok'?'selected':''}>✓ Verwerkt</option>
+                    <option value="auto" ${p.status==='auto'?'selected':''}>⚡ Automatisch</option>
+                    <option value="fout" ${p.status==='fout'?'selected':''}>⚠ Fout</option>
+                  </select>
+                </td>
+                <td>${p.status==='open'?`<button class="btn btn-primary btn-sm" onclick="showTab('sync')">→ Sync</button>`:
+                     p.status==='auto'?'<span style="color:var(--ts-success);font-size:12px">✓ Auto</span>':
+                     '<span style="color:var(--ts-success);font-size:12px">✓ Klaar</span>'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function updateStroomStatus(product, status) {
+  // Persist in SharePoint optionally — for now just visual
+  showToast(`${product} → ${status}`, 'success');
 }
 
 // ── Mapping ──────────────────────────────────────────────────────────────────
@@ -1138,6 +1195,7 @@ function renderRegelsTable(c) {
       </select>
       <input placeholder="Abonnement nr" value="${regelFilters.abonNr}" oninput="regelFilters.abonNr=this.value;applyRegelFilters();updateRegelstbody()" style="width:120px" />
       <input placeholder="Regel nr" value="${regelFilters.regelNr}" oninput="regelFilters.regelNr=this.value;applyRegelFilters();updateRegelstbody()" style="width:100px" />
+      <input placeholder="🔍 Regelomschrijving" value="${regelFilters.omschrijving||''}" oninput="regelFilters.omschrijving=this.value;applyRegelFilters();updateRegelstbody()" style="min-width:160px;flex:1" />
       <span class="regels-count" id="regelsCount">${gefilterdRegels.length} / ${alleRegels.length} regels</span>
     </div>
     <div class="tbl-wrapper">
@@ -1166,6 +1224,7 @@ function applyRegelFilters() {
     if (regelFilters.type && r.Type_abonnement !== regelFilters.type) return false;
     if (regelFilters.abonNr && !String(r.Nummer_abonnement).includes(regelFilters.abonNr)) return false;
     if (regelFilters.regelNr && !String(r.Regelnummer).includes(regelFilters.regelNr)) return false;
+    if (regelFilters.omschrijving && !r.Regel_Omschrijving?.toLowerCase().includes(regelFilters.omschrijving.toLowerCase())) return false;
     return true;
   });
   // Sort
