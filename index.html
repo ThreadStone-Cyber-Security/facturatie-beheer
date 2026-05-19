@@ -144,6 +144,27 @@
   .afas-token-input { width: 100%; border: 1px solid var(--ts-border); border-radius: 5px; padding: 8px 12px; font-size: 13px; font-family: monospace; color: var(--ts-blue); background: var(--ts-white); margin-bottom: 8px; }
   .progress-bar { height: 6px; background: var(--ts-border); border-radius: 3px; margin: 12px 0; overflow: hidden; }
   .progress-fill { height: 100%; background: var(--ts-accent); border-radius: 3px; transition: width 0.3s; }
+  .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .filter-bar input, .filter-bar select { font-size: 12px; padding: 6px 10px; border: 1px solid var(--ts-border); border-radius: var(--radius); background: var(--ts-white); color: var(--ts-blue); height: 32px; }
+  .filter-bar input { min-width: 160px; }
+  .filter-bar select { min-width: 140px; }
+  .regels-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .regels-tbl th { position: sticky; top: 0; background: var(--ts-bg); padding: 8px 10px; text-align: left; font-size: 11px; font-weight: 600; color: var(--ts-muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--ts-border); cursor: pointer; user-select: none; white-space: nowrap; }
+  .regels-tbl th:hover { color: var(--ts-accent); }
+  .regels-tbl th .sort-icon { margin-left: 4px; opacity: 0.4; }
+  .regels-tbl th.sorted .sort-icon { opacity: 1; color: var(--ts-accent); }
+  .regels-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--ts-border); vertical-align: middle; white-space: nowrap; }
+  .regels-tbl tr:hover td { background: var(--ts-bg); }
+  .regels-tbl tr.editing td { background: var(--ts-light); }
+  .inline-input { border: 1px solid var(--ts-accent); border-radius: 4px; padding: 3px 6px; font-size: 13px; font-family: inherit; color: var(--ts-blue); background: white; width: 100%; min-width: 60px; }
+  .inline-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(30,111,189,0.2); }
+  .edit-btn { background: none; border: none; cursor: pointer; color: var(--ts-muted); padding: 3px 6px; border-radius: 4px; font-size: 12px; }
+  .edit-btn:hover { background: var(--ts-light); color: var(--ts-accent); }
+  .save-row-btn { background: var(--ts-accent); color: white; border: none; border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+  .save-row-btn:hover { background: #1560a8; }
+  .cancel-row-btn { background: none; border: 1px solid var(--ts-border); border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; color: var(--ts-muted); margin-left: 4px; }
+  .tbl-wrapper { max-height: calc(100vh - 280px); overflow-y: auto; border: 1px solid var(--ts-border); border-radius: var(--radius); }
+  .regels-count { font-size: 12px; color: var(--ts-muted); margin-left: auto; }
 </style>
 </head>
 <body>
@@ -183,6 +204,10 @@
       <div class="nav-item" onclick="showTab('producten')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
         Producten
+      </div>
+      <div class="nav-item" onclick="showTab('regels')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        Abonnementsregels
       </div>
       <div class="nav-item" onclick="showTab('sync')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -295,14 +320,15 @@ async function loadProducenten() {
 // ── Tab routing ──────────────────────────────────────────────────────────────
 function showTab(tab) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[['dashboard','mapping','validatie','producten','sync'].indexOf(tab)]?.classList.add('active');
-  const titles = { dashboard: 'Dashboard', mapping: 'Kolom mapping', validatie: 'Validatieregels', producten: 'Producten', sync: 'AFAS Sync' };
+  document.querySelectorAll('.nav-item')[['dashboard','mapping','validatie','producten','regels','sync'].indexOf(tab)]?.classList.add('active');
+  const titles = { dashboard: 'Dashboard', mapping: 'Kolom mapping', validatie: 'Validatieregels', producten: 'Producten', regels: 'Abonnementsregels', sync: 'AFAS Sync' };
   document.getElementById('pageTitle').textContent = titles[tab];
   document.getElementById('topActions').innerHTML = '';
   if (tab === 'dashboard') renderDashboard();
   else if (tab === 'mapping') renderMapping();
   else if (tab === 'validatie') renderValidatie();
   else if (tab === 'producten') renderProducten();
+  else if (tab === 'regels') renderRegels();
   else if (tab === 'sync') renderSync();
 }
 
@@ -1058,6 +1084,217 @@ async function startSync() {
   }
   log.innerHTML += `<div style="margin-top:8px;font-weight:600;color:var(--ts-blue)">── Sync voltooid ──</div>`;
   showToast('Sync klaar!', 'success');
+}
+
+// ── Abonnementsregels ────────────────────────────────────────────────────────
+let alleRegels = [];
+let gefilterdRegels = [];
+let regelsSortField = 'Regelnummer';
+let regelsSortDir = 1;
+let regelFilters = { klant: '', product: '', type: '', abonNr: '', regelNr: '' };
+let editingRegel = null;
+let afasTokenRegels = '';
+
+async function renderRegels() {
+  const c = document.getElementById('mainContent');
+  document.getElementById('topActions').innerHTML = `
+    <input type="password" id="afasTokenRegelsInput" placeholder="AFAS token" value="${afasTokenRegels}"
+      style="font-size:12px;padding:5px 10px;border:1px solid var(--ts-border);border-radius:var(--radius);width:220px"
+      oninput="afasTokenRegels=this.value" />
+    <button class="btn btn-primary btn-sm" onclick="laadRegels()">↻ Laden</button>`;
+
+  if (alleRegels.length === 0) {
+    c.innerHTML = `<div class="empty-state">Vul het AFAS token in en klik op Laden.</div>`;
+    return;
+  }
+  renderRegelsTable(c);
+}
+
+async function laadRegels() {
+  afasTokenRegels = document.getElementById('afasTokenRegelsInput')?.value || afasTokenRegels;
+  if (!afasTokenRegels) { showToast('Vul eerst het AFAS token in', 'error'); return; }
+  afasToken = afasTokenRegels;
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Abonnementsregels ophalen (kan even duren)...</div>';
+  try {
+    alleRegels = await afasGet('PowerP_Abonnementregels');
+    gefilterdRegels = [...alleRegels];
+    renderRegelsTable(c);
+    showToast(`${alleRegels.length} regels geladen`, 'success');
+  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+}
+
+function renderRegelsTable(c) {
+  applyRegelFilters();
+  const uniqueTypes = [...new Set(alleRegels.map(r => r.Type_abonnement).filter(Boolean))].sort();
+
+  c.innerHTML = `
+    <div class="filter-bar">
+      <input placeholder="🔍 Klant" value="${regelFilters.klant}" oninput="regelFilters.klant=this.value;applyRegelFilters();updateRegelstbody()" style="flex:1;min-width:140px" />
+      <input placeholder="🔍 Product / itemcode" value="${regelFilters.product}" oninput="regelFilters.product=this.value;applyRegelFilters();updateRegelstbody()" style="flex:1;min-width:140px" />
+      <select onchange="regelFilters.type=this.value;applyRegelFilters();updateRegelstbody()">
+        <option value="">Alle types</option>
+        ${uniqueTypes.map(t => `<option value="${t}" ${regelFilters.type===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+      <input placeholder="Abonnement nr" value="${regelFilters.abonNr}" oninput="regelFilters.abonNr=this.value;applyRegelFilters();updateRegelstbody()" style="width:120px" />
+      <input placeholder="Regel nr" value="${regelFilters.regelNr}" oninput="regelFilters.regelNr=this.value;applyRegelFilters();updateRegelstbody()" style="width:100px" />
+      <span class="regels-count" id="regelsCount">${gefilterdRegels.length} / ${alleRegels.length} regels</span>
+    </div>
+    <div class="tbl-wrapper">
+      <table class="regels-tbl">
+        <thead>
+          <tr>
+            ${['Regelnummer','Nummer_abonnement','Type_abonnement','Naam','Itemcode','Aantal','Afwijkende_prijs','Korting','Regel_Omschrijving'].map(f => `
+            <th onclick="sortRegels('${f}')" class="${regelsSortField===f?'sorted':''}">
+              ${f==='Regelnummer'?'Regel nr':f==='Nummer_abonnement'?'Abo nr':f==='Type_abonnement'?'Type':f==='Naam'?'Klant':f==='Itemcode'?'Product':f==='Aantal'?'Aantal':f==='Afwijkende_prijs'?'Prijs':f==='Korting'?'Korting %':f==='Regel_Omschrijving'?'Regelomschrijving':f}
+              <span class="sort-icon">${regelsSortField===f?(regelsSortDir===1?'↑':'↓'):'↕'}</span>
+            </th>`).join('')}
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="regelsTbody">
+          ${renderRegelRows()}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function applyRegelFilters() {
+  gefilterdRegels = alleRegels.filter(r => {
+    if (regelFilters.klant && !r.Naam?.toLowerCase().includes(regelFilters.klant.toLowerCase())) return false;
+    if (regelFilters.product && !r.Itemcode?.toLowerCase().includes(regelFilters.product.toLowerCase()) && !r.Omschrijving?.toLowerCase().includes(regelFilters.product.toLowerCase())) return false;
+    if (regelFilters.type && r.Type_abonnement !== regelFilters.type) return false;
+    if (regelFilters.abonNr && !String(r.Nummer_abonnement).includes(regelFilters.abonNr)) return false;
+    if (regelFilters.regelNr && !String(r.Regelnummer).includes(regelFilters.regelNr)) return false;
+    return true;
+  });
+  // Sort
+  gefilterdRegels.sort((a, b) => {
+    const av = a[regelsSortField] ?? '';
+    const bv = b[regelsSortField] ?? '';
+    if (typeof av === 'number') return (av - bv) * regelsSortDir;
+    return String(av).localeCompare(String(bv)) * regelsSortDir;
+  });
+}
+
+function sortRegels(field) {
+  if (regelsSortField === field) regelsSortDir *= -1;
+  else { regelsSortField = field; regelsSortDir = 1; }
+  applyRegelFilters();
+  updateRegelsCount();
+  document.getElementById('regelsTbody').innerHTML = renderRegelRows();
+  // Re-render header for sort indicators
+  document.querySelectorAll('.regels-tbl th').forEach((th, i) => {
+    const fields = ['Regelnummer','Nummer_abonnement','Type_abonnement','Naam','Itemcode','Aantal','Afwijkende_prijs','Korting','Regel_Omschrijving'];
+    const f = fields[i];
+    if (!f) return;
+    th.className = regelsSortField === f ? 'sorted' : '';
+    th.querySelector('.sort-icon').textContent = regelsSortField===f?(regelsSortDir===1?'↑':'↓'):'↕';
+  });
+}
+
+function updateRegelsCount() {
+  const el = document.getElementById('regelsCount');
+  if (el) el.textContent = `${gefilterdRegels.length} / ${alleRegels.length} regels`;
+}
+
+function updateRegelstbody() {
+  updateRegelsCount();
+  document.getElementById('regelsTbody').innerHTML = renderRegelRows();
+}
+
+function renderRegelRows() {
+  if (gefilterdRegels.length === 0) return `<tr><td colspan="10" class="empty-state">Geen regels gevonden</td></tr>`;
+  return gefilterdRegels.slice(0, 500).map(r => {
+    const isEditing = editingRegel === r.Regelnummer;
+    return `<tr class="${isEditing ? 'editing' : ''}" data-id="${r.Regelnummer}">
+      <td><span class="tag">${r.Regelnummer}</span></td>
+      <td>${r.Nummer_abonnement}</td>
+      <td><span class="badge badge-csv" style="font-size:10px">${r.Type_abonnement||'—'}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${r.Naam||''}">${r.Naam||'—'}</td>
+      <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.Itemcode||'—'}</code></td>
+      <td>${isEditing
+        ? `<input class="inline-input" id="edit_aantal_${r.Regelnummer}" value="${r.Aantal||0}" type="number" style="width:70px" />`
+        : (r.Aantal||0)}</td>
+      <td>${isEditing
+        ? `<input class="inline-input" id="edit_prijs_${r.Regelnummer}" value="${r.Afwijkende_prijs||''}" type="number" step="0.01" style="width:90px" />`
+        : (r.Afwijkende_prijs ? '€'+parseFloat(r.Afwijkende_prijs).toFixed(2) : '—')}</td>
+      <td>${isEditing
+        ? `<input class="inline-input" id="edit_korting_${r.Regelnummer}" value="${r.Korting||0}" type="number" step="0.01" style="width:70px" />`
+        : (r.Korting ? r.Korting+'%' : '—')}</td>
+      <td style="min-width:180px">${isEditing
+        ? `<input class="inline-input" id="edit_omschrijving_${r.Regelnummer}" value="${(r.Regel_Omschrijving||'').replace(/"/g,'&quot;')}" style="width:200px" />`
+        : (r.Regel_Omschrijving||'—')}</td>
+      <td style="white-space:nowrap">
+        ${isEditing
+          ? `<button class="save-row-btn" onclick="saveRegel(${r.Regelnummer},${r.Nummer_abonnement})">Opslaan</button>
+             <button class="cancel-row-btn" onclick="cancelEditRegel()">Annuleren</button>`
+          : `<button class="edit-btn" onclick="startEditRegel(${r.Regelnummer})" title="Bewerken">✏️</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function startEditRegel(regelnummer) {
+  editingRegel = regelnummer;
+  document.getElementById('regelsTbody').innerHTML = renderRegelRows();
+}
+
+function cancelEditRegel() {
+  editingRegel = null;
+  document.getElementById('regelsTbody').innerHTML = renderRegelRows();
+}
+
+async function saveRegel(regelnummer, aboNummer) {
+  const aantal = parseFloat(document.getElementById(`edit_aantal_${regelnummer}`)?.value);
+  const prijs = parseFloat(document.getElementById(`edit_prijs_${regelnummer}`)?.value);
+  const korting = parseFloat(document.getElementById(`edit_korting_${regelnummer}`)?.value);
+  const omschrijving = document.getElementById(`edit_omschrijving_${regelnummer}`)?.value;
+
+  const lineFields = { "Id": parseInt(regelnummer) };
+  if (!isNaN(aantal)) lineFields["Qu"] = aantal;
+  if (!isNaN(prijs) && prijs > 0) lineFields["Pric"] = prijs;
+  if (!isNaN(korting)) lineFields["DcPr"] = korting;
+  if (omschrijving !== undefined) lineFields["U62872DFA07C24735AABDF3FC24D5DBC3"] = omschrijving;
+
+  const body = {
+    "FbSubscription": {
+      "Element": {
+        "Fields": { "SuNr": aboNummer },
+        "Objects": {
+          "FbSubscriptionLines": {
+            "Element": { "Fields": lineFields }
+          }
+        }
+      }
+    }
+  };
+
+  try {
+    const r = await fetch(`${AFAS_BASE}/connectors/FbSubscription`, {
+      method: 'PUT',
+      headers: { 'Authorization': `AfasToken ${btoa(afasTokenRegels)}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (r.ok || r.status === 204) {
+      // Update local data
+      const idx = alleRegels.findIndex(r => r.Regelnummer === regelnummer);
+      if (idx >= 0) {
+        if (!isNaN(aantal)) alleRegels[idx].Aantal = aantal;
+        if (!isNaN(prijs) && prijs > 0) alleRegels[idx].Afwijkende_prijs = prijs;
+        if (!isNaN(korting)) alleRegels[idx].Korting = korting;
+        if (omschrijving !== undefined) alleRegels[idx].Regel_Omschrijving = omschrijving;
+      }
+      editingRegel = null;
+      applyRegelFilters();
+      document.getElementById('regelsTbody').innerHTML = renderRegelRows();
+      showToast(`Regel ${regelnummer} opgeslagen`, 'success');
+    } else {
+      const err = await r.text();
+      showToast(`Fout: ${err.substring(0,120)}`, 'error');
+    }
+  } catch(e) { showToast('Fout: ' + e.message, 'error'); }
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────
