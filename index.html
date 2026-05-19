@@ -592,7 +592,7 @@ function renderSync() {
   c.innerHTML = `
     <div class="step-indicator">
       <div class="step-dot ${syncStep >= 1 ? (syncStep > 1 ? 'done' : 'active') : ''}" id="step1dot">1. Bestand & token</div>
-      <div class="step-dot ${syncStep >= 2 ? (syncStep > 2 ? 'done' : 'active') : ''}" id="step2dot">2. Koppelen</div>
+      <div class="step-dot ${syncStep >= 2 ? (syncStep > 2 ? 'done' : 'active') : ''}" id="step2dot">2. Koppelen${excelRows.every(r=>r.lineId) ? ' (overgeslagen)' : ''}</div>
       <div class="step-dot ${syncStep >= 3 ? (syncStep > 3 ? 'done' : 'active') : ''}" id="step3dot">3. Preview</div>
       <div class="step-dot ${syncStep >= 4 ? 'active' : ''}" id="step4dot">4. Sync</div>
     </div>
@@ -692,29 +692,52 @@ async function goStep2() {
   const c = document.getElementById('sync-content');
   c.innerHTML = '<div class="loader"><div class="spinner"></div> AFAS data ophalen...</div>';
 
+  // Check if all rows have a lineId — skip koppelstap if so
+  const allHaveLineId = excelRows.every(r => r.lineId);
+
   try {
-    [afasRelaties, afasItems] = await Promise.all([
-      afasGet('PowerP_Verkooprelaties'),
-      afasGet('PowerP_Items'),
-    ]);
-
-    // Load saved org mappings from SharePoint
-    try {
-      const spData = await graph('GET', `/sites/${siteId}/lists/OrgMappings/items?$expand=fields&$top=500`);
-      (spData.value || []).forEach(i => { orgMappings[i.fields.Title] = i.fields.AFASVerkoopRelID; });
-    } catch(e) { /* lijst bestaat nog niet */ }
-
-    // Load saved item mappings from MappingRegels
-    try {
-      const mapData = await graph('GET', `/sites/${siteId}/lists/MappingRegels/items?$expand=fields&$top=500`);
-      (mapData.value || []).filter(i => i.fields.Product === 'Knowbe4').forEach(i => {
-        itemMappings[i.fields.CSVWaarde] = i.fields.AFASAbonnementID;
-      });
-    } catch(e) {}
-
-    syncStep = 2;
+    if (allHaveLineId) {
+      // Only need abonnementregels — no need to load relaties/items
+      afasRegels = await afasGet('PowerP_Abonnementregels');
+      await buildDiffFromLineIds();
+      syncStep = 3;
+    } else {
+      [afasRelaties, afasItems] = await Promise.all([
+        afasGet('PowerP_Verkooprelaties'),
+        afasGet('PowerP_Items'),
+      ]);
+      // Load saved org mappings from SharePoint
+      try {
+        const spData = await graph('GET', `/sites/${siteId}/lists/OrgMappings/items?$expand=fields&$top=500`);
+        (spData.value || []).forEach(i => { orgMappings[i.fields.Title] = i.fields.AFASVerkoopRelID; });
+      } catch(e) {}
+      // Load saved item mappings
+      try {
+        const mapData = await graph('GET', `/sites/${siteId}/lists/MappingRegels/items?$expand=fields&$top=500`);
+        (mapData.value || []).forEach(i => { if (i.fields.CSVWaarde) itemMappings[i.fields.CSVWaarde] = i.fields.AFASAbonnementID; });
+      } catch(e) {}
+      syncStep = 2;
+    }
     renderSyncStep();
   } catch(e) { showToast('AFAS fout: ' + e.message, 'error'); renderSyncStep(); }
+}
+
+async function buildDiffFromLineIds() {
+  diffResult = [];
+  for (const row of excelRows) {
+    const existing = afasRegels.find(r => String(r.Regelnummer) === String(row.lineId));
+    if (!existing) {
+      diffResult.push({ ...row, status: 'no_match', afasRegel: null });
+    } else if (
+      Math.abs(existing.Aantal - row.seats) > 0.01 ||
+      (row.endDate && row.endDate !== '') ||
+      (row.discount && Math.abs((existing.Korting||0) - row.discount) > 0.01)
+    ) {
+      diffResult.push({ ...row, relId: existing.OrganisatieId, itemcode: existing.Itemcode, status: 'changed', afasRegel: existing, oldSeats: existing.Aantal });
+    } else {
+      diffResult.push({ ...row, relId: existing.OrganisatieId, itemcode: existing.Itemcode, status: 'ok', afasRegel: existing });
+    }
+  }
 }
 
 function renderStep2(c) {
@@ -915,7 +938,7 @@ function renderStep3(c) {
                   r.status === 'new' ? '+ Nieuw' :
                   r.status === 'changed' ? '~ Gewijzigd' :
                   r.status === 'ok' ? '✓ OK' :
-                  r.status === 'no_mapping' ? '⚠ Geen mapping' : r.status
+                  r.status === 'no_mapping' ? '⚠ Geen mapping' : r.status === 'no_match' ? '⚠ Regel niet gevonden' : r.status
                 }</span>
                 <span class="diff-badge ignored ignore-badge" style="${ignoredRows.has(r.org+'|'+r.billingType) ? '' : 'display:none'}">Genegeerd</span>
               </td>
