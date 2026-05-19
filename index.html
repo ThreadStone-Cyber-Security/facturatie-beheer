@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Facturatie Mapping Beheer</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/msal.js/2.38.3/msal-browser.min.js"></script>
+<script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
 <style>
   :root {
     --ts-blue: #0e2a47;
@@ -193,7 +193,7 @@ const msalApp = new msal.PublicClientApplication({
   auth: {
     clientId: CLIENT_ID,
     authority: `https://login.microsoftonline.com/${TENANT_ID}`,
-    redirectUri: window.location.href.split('?')[0],
+    redirectUri: 'https://threadstone-cyber-security.github.io/facturatie-beheer/',
   },
   cache: { cacheLocation: 'sessionStorage' }
 });
@@ -535,26 +535,34 @@ function showToast(msg, type) {
 }
 
 // ── Auto-login check ─────────────────────────────────────────────────────────
-(async () => {
-  await msalApp.initialize();
-  const btn = document.getElementById('loginBtn');
-  const btnText = document.getElementById('loginBtnText');
-  if (btn) { btn.disabled = false; btnText.textContent = 'Inloggen met Microsoft'; }
-  const accounts = msalApp.getAllAccounts();
-  if (accounts.length) {
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('appShell').style.display = 'flex';
-    document.getElementById('sidebarUser').textContent = accounts[0].name || accounts[0].username;
-    try {
-      const site = await graph('GET', `/sites/threadstonecs.sharepoint.com:/sites/team_finance`);
-      siteId = site.id;
-      await loadProducenten();
-      showTab('dashboard');
-    } catch(e) {
-      document.getElementById('mainContent').innerHTML = `<div class="empty-state">Fout bij laden: ${e.message}</div>`;
+async function initMsal() {
+  try {
+    await msalApp.initialize();
+    const btn = document.getElementById('loginBtn');
+    const btnText = document.getElementById('loginBtnText');
+    if (btn) { btn.disabled = false; btnText.textContent = 'Inloggen met Microsoft'; }
+    const accounts = msalApp.getAllAccounts();
+    if (accounts.length) {
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('appShell').style.display = 'flex';
+      document.getElementById('sidebarUser').textContent = accounts[0].name || accounts[0].username;
+      try {
+        const site = await graph('GET', `/sites/threadstonecs.sharepoint.com:/sites/team_finance`);
+        siteId = site.id;
+        await loadProducenten();
+        showTab('dashboard');
+      } catch(e) {
+        document.getElementById('mainContent').innerHTML = `<div class="empty-state">Fout bij laden: ${e.message}</div>`;
+      }
     }
+  } catch(e) {
+    const btnText = document.getElementById('loginBtnText');
+    if (btnText) btnText.textContent = 'Fout: herlaad de pagina';
+    console.error('MSAL init fout:', e);
   }
-})();
+}
+
+window.addEventListener('load', initMsal);
 </script>
 </body>
 </html>
