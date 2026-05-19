@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Facturatie Mapping Beheer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/msal.js/2.38.3/msal-browser.min.js"></script>
+<style>
+  :root {
+    --ts-blue: #0e2a47;
+    --ts-accent: #1e6fbd;
+    --ts-light: #e8f0f9;
+    --ts-border: #d0dce8;
+    --ts-muted: #6b7f96;
+    --ts-success: #1a7f4b;
+    --ts-success-bg: #eafaf2;
+    --ts-warning: #b45309;
+    --ts-warning-bg: #fffbeb;
+    --ts-danger: #b91c1c;
+    --ts-danger-bg: #fef2f2;
+    --ts-white: #ffffff;
+    --ts-bg: #f4f7fb;
+    --ts-card: #ffffff;
+    --radius: 8px;
+    --shadow: 0 1px 4px rgba(14,42,71,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--ts-bg); color: var(--ts-blue); font-size: 14px; }
+
+  /* Layout */
+  .shell { display: flex; min-height: 100vh; }
+  .sidebar { width: 220px; background: var(--ts-blue); flex-shrink: 0; display: flex; flex-direction: column; }
+  .sidebar-logo { padding: 24px 20px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .sidebar-logo .brand { font-size: 15px; font-weight: 600; color: #fff; letter-spacing: 0.02em; }
+  .sidebar-logo .sub { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+  .nav { padding: 12px 0; flex: 1; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; color: rgba(255,255,255,0.65); cursor: pointer; font-size: 13px; transition: background 0.15s, color 0.15s; }
+  .nav-item:hover { background: rgba(255,255,255,0.07); color: #fff; }
+  .nav-item.active { background: rgba(30,111,189,0.4); color: #fff; border-left: 3px solid #4da3ff; padding-left: 17px; }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .sidebar-user { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 12px; color: rgba(255,255,255,0.5); }
+  .sidebar-user .uname { color: rgba(255,255,255,0.85); font-weight: 500; }
+
+  .main { flex: 1; overflow: auto; }
+  .topbar { background: var(--ts-white); border-bottom: 1px solid var(--ts-border); padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
+  .topbar h1 { font-size: 16px; font-weight: 600; color: var(--ts-blue); }
+  .topbar .actions { display: flex; gap: 8px; }
+  .content { padding: 24px 28px; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
+  .btn-primary { background: var(--ts-accent); color: #fff; }
+  .btn-primary:hover { background: #1560a8; }
+  .btn-secondary { background: var(--ts-white); color: var(--ts-blue); border: 1px solid var(--ts-border); }
+  .btn-secondary:hover { background: var(--ts-light); }
+  .btn-danger { background: var(--ts-danger-bg); color: var(--ts-danger); border: 1px solid #fecaca; }
+  .btn-danger:hover { background: #fee2e2; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Cards */
+  .card { background: var(--ts-card); border: 1px solid var(--ts-border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .card-header { padding: 14px 18px; border-bottom: 1px solid var(--ts-border); display: flex; align-items: center; justify-content: space-between; }
+  .card-header h2 { font-size: 14px; font-weight: 600; }
+  .card-body { padding: 18px; }
+
+  /* Stats */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .stat-card { background: var(--ts-card); border: 1px solid var(--ts-border); border-radius: var(--radius); padding: 16px 18px; }
+  .stat-val { font-size: 26px; font-weight: 700; color: var(--ts-accent); line-height: 1; }
+  .stat-lbl { font-size: 11px; color: var(--ts-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  /* Product grid */
+  .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .product-tile { background: var(--ts-card); border: 1.5px solid var(--ts-border); border-radius: var(--radius); padding: 12px 14px; cursor: pointer; transition: all 0.15s; }
+  .product-tile:hover { border-color: var(--ts-accent); box-shadow: 0 2px 8px rgba(30,111,189,0.12); }
+  .product-tile.active { border-color: var(--ts-accent); background: var(--ts-light); }
+  .product-tile .pname { font-weight: 600; font-size: 13px; }
+  .product-tile .pmeta { font-size: 11px; color: var(--ts-muted); margin-top: 3px; }
+  .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 20px; margin-top: 6px; letter-spacing: 0.03em; }
+  .badge-auto { background: var(--ts-success-bg); color: var(--ts-success); }
+  .badge-csv  { background: var(--ts-light); color: var(--ts-accent); }
+  .badge-mail { background: var(--ts-warning-bg); color: var(--ts-warning); }
+
+  /* Table */
+  .tbl { width: 100%; border-collapse: collapse; }
+  .tbl th { text-align: left; font-size: 11px; font-weight: 600; color: var(--ts-muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 12px; border-bottom: 1px solid var(--ts-border); background: var(--ts-bg); }
+  .tbl td { padding: 8px 12px; border-bottom: 1px solid var(--ts-border); vertical-align: middle; }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl tr:hover td { background: var(--ts-bg); }
+  .tbl input { width: 100%; border: 1px solid var(--ts-border); border-radius: 5px; padding: 5px 8px; font-size: 13px; font-family: inherit; color: var(--ts-blue); background: var(--ts-white); }
+  .tbl input:focus { outline: none; border-color: var(--ts-accent); }
+
+  /* Login screen */
+  .login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--ts-blue); }
+  .login-box { background: #fff; border-radius: 12px; padding: 40px; text-align: center; width: 340px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+  .login-box .logo { font-size: 20px; font-weight: 700; color: var(--ts-blue); margin-bottom: 6px; }
+  .login-box .sub { font-size: 13px; color: var(--ts-muted); margin-bottom: 28px; }
+  .login-box .btn { width: 100%; justify-content: center; padding: 11px; font-size: 14px; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--ts-blue); color: #fff; padding: 12px 18px; border-radius: var(--radius); font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 999; transform: translateY(80px); opacity: 0; transition: all 0.3s; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { background: var(--ts-success); }
+  .toast.error { background: var(--ts-danger); }
+
+  /* Loader */
+  .loader { display: flex; align-items: center; gap: 10px; color: var(--ts-muted); font-size: 13px; padding: 24px 0; }
+  .spinner { width: 18px; height: 18px; border: 2px solid var(--ts-border); border-top-color: var(--ts-accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty-state { text-align: center; padding: 32px; color: var(--ts-muted); font-size: 13px; }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--ts-blue); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .divider { border: none; border-top: 1px solid var(--ts-border); margin: 20px 0; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; background: var(--ts-light); color: var(--ts-accent); border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+  select.tbl-select { width: 100%; border: 1px solid var(--ts-border); border-radius: 5px; padding: 5px 8px; font-size: 13px; font-family: inherit; color: var(--ts-blue); background: var(--ts-white); }
+  select.tbl-select:focus { outline: none; border-color: var(--ts-accent); }
+</style>
+</head>
+<body>
+
+<!-- Login screen -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-box">
+    <div class="logo">🔒 ThreadStone</div>
+    <div class="sub">Facturatie Mapping Beheer<br>Log in met je Microsoft-account</div>
+    <button class="btn btn-primary" id="loginBtn" onclick="signIn()" disabled>
+      <svg viewBox="0 0 21 21" width="16" height="16" fill="currentColor"><path d="M0 0h10v10H0zm11 0h10v10H11zM0 11h10v10H0zm11 0h10v10H11z"/></svg>
+      <span id="loginBtnText">Bezig met laden...</span>
+    </button>
+  </div>
+</div>
+
+<!-- App shell -->
+<div class="shell" id="appShell" style="display:none">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="brand">ThreadStone</div>
+      <div class="sub">Facturatie Beheer</div>
+    </div>
+    <nav class="nav">
+      <div class="nav-item active" onclick="showTab('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" onclick="showTab('mapping')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18"/></svg>
+        Kolom mapping
+      </div>
+      <div class="nav-item" onclick="showTab('validatie')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Validatieregels
+      </div>
+      <div class="nav-item" onclick="showTab('producten')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+        Producten
+      </div>
+    </nav>
+    <div class="sidebar-user">
+      <div class="uname" id="sidebarUser">—</div>
+      <div style="margin-top:4px; cursor:pointer; font-size:11px;" onclick="signOut()">Uitloggen</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <h1 id="pageTitle">Dashboard</h1>
+      <div class="actions" id="topActions"></div>
+    </div>
+    <div class="content" id="mainContent">
+      <div class="loader"><div class="spinner"></div> Laden...</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const CLIENT_ID  = 'da072118-d9bc-4a32-a2b9-099fc610643e';
+const TENANT_ID  = '63acceb2-e69a-4ffc-8ab0-737752764237';
+const SITE_URL   = 'https://threadstonecs.sharepoint.com/sites/team_finance';
+const GRAPH      = 'https://graph.microsoft.com/v1.0';
+const SCOPES     = ['https://graph.microsoft.com/Sites.ReadWrite.All'];
+
+let siteId = null;
+let token  = null;
+let producten = [];
+let activeProduct = null;
+
+// ── MSAL ────────────────────────────────────────────────────────────────────
+const msalApp = new msal.PublicClientApplication({
+  auth: {
+    clientId: CLIENT_ID,
+    authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+    redirectUri: window.location.href.split('?')[0],
+  },
+  cache: { cacheLocation: 'sessionStorage' }
+});
+
+async function signIn() {
+  try {
+    const res = await msalApp.loginPopup({ scopes: SCOPES });
+    await initApp(res.account);
+  } catch(e) { showToast('Inloggen mislukt: ' + e.message, 'error'); }
+}
+
+function signOut() {
+  msalApp.logoutPopup();
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('appShell').style.display = 'none';
+}
+
+async function getToken() {
+  const accounts = msalApp.getAllAccounts();
+  if (!accounts.length) throw new Error('Niet ingelogd');
+  const res = await msalApp.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
+  return res.accessToken;
+}
+
+async function graph(method, path, body) {
+  token = await getToken();
+  const opts = {
+    method,
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(GRAPH + path, opts);
+  if (!r.ok) throw new Error(`Graph ${method} ${path} → ${r.status}: ${await r.text()}`);
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+async function initApp(account) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'flex';
+  document.getElementById('sidebarUser').textContent = account.name || account.username;
+
+  try {
+    const site = await graph('GET', `/sites/threadstonecs.sharepoint.com:/sites/team_finance`);
+    siteId = site.id;
+    await loadProducenten();
+    showTab('dashboard');
+  } catch(e) {
+    document.getElementById('mainContent').innerHTML = `<div class="empty-state">Fout bij laden: ${e.message}</div>`;
+  }
+}
+
+async function loadProducenten() {
+  const data = await graph('GET', `/sites/${siteId}/lists/Producten/items?$expand=fields&$top=100`);
+  producten = (data.value || []).map(i => ({
+    id: i.id,
+    naam: i.fields.Title,
+    brontype: i.fields.Brontype || '',
+    bronlocatie: i.fields.Bronlocatie || '',
+    afas: i.fields.AFASDoorbelasting || '',
+    actief: i.fields.Actief !== false,
+  }));
+}
+
+// ── Tab routing ──────────────────────────────────────────────────────────────
+function showTab(tab) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.nav-item')[['dashboard','mapping','validatie','producten'].indexOf(tab)]?.classList.add('active');
+  const titles = { dashboard: 'Dashboard', mapping: 'Kolom mapping', validatie: 'Validatieregels', producten: 'Producten' };
+  document.getElementById('pageTitle').textContent = titles[tab];
+  document.getElementById('topActions').innerHTML = '';
+  if (tab === 'dashboard') renderDashboard();
+  else if (tab === 'mapping') renderMapping();
+  else if (tab === 'validatie') renderValidatie();
+  else if (tab === 'producten') renderProducten();
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+async function renderDashboard() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Statistieken laden...</div>';
+  try {
+    const [mapData, valData] = await Promise.all([
+      graph('GET', `/sites/${siteId}/lists/MappingRegels/items?$expand=fields&$top=500`),
+      graph('GET', `/sites/${siteId}/lists/Validatieregels/items?$expand=fields&$top=100`),
+    ]);
+    const mappings = mapData.value || [];
+    const csvProds = producten.filter(p => p.brontype === 'CSV / Excel');
+    const metMapping = [...new Set(mappings.map(m => m.fields.Product))].length;
+    const zonderMapping = csvProds.filter(p => !mappings.find(m => m.fields.Product === p.naam)).length;
+
+    c.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-val">${producten.length}</div><div class="stat-lbl">Producten</div></div>
+        <div class="stat-card"><div class="stat-val">${mappings.length}</div><div class="stat-lbl">Mapping regels</div></div>
+        <div class="stat-card"><div class="stat-val">${metMapping}</div><div class="stat-lbl">Producten met mapping</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:${zonderMapping > 0 ? 'var(--ts-danger)' : 'var(--ts-success)'}">${zonderMapping}</div><div class="stat-lbl">Ontbrekende mappings</div></div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><h2>Producten overzicht</h2></div>
+        <div class="card-body" style="padding:0">
+          <table class="tbl">
+            <thead><tr><th>Product</th><th>Brontype</th><th>AFAS doorbelasting</th><th>Mapping regels</th><th>Status</th></tr></thead>
+            <tbody>
+              ${producten.map(p => {
+                const count = mappings.filter(m => m.fields.Product === p.naam).length;
+                const needsMapping = p.brontype === 'CSV / Excel';
+                const ok = !needsMapping || count > 0;
+                return `<tr>
+                  <td><strong>${p.naam}</strong></td>
+                  <td><span class="badge ${p.brontype === 'AFAS koppeling' ? 'badge-auto' : p.brontype === 'CSV / Excel' ? 'badge-csv' : 'badge-mail'}">${p.brontype || '—'}</span></td>
+                  <td>${p.afas || '—'}</td>
+                  <td>${needsMapping ? count + ' regel' + (count !== 1 ? 's' : '') : '<span style="color:var(--ts-muted)">n.v.t.</span>'}</td>
+                  <td><span style="color:${ok ? 'var(--ts-success)' : 'var(--ts-danger)'}; font-size:12px; font-weight:600">${ok ? '✓ OK' : '⚠ Ontbreekt'}</span></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+}
+
+// ── Mapping ──────────────────────────────────────────────────────────────────
+async function renderMapping() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Mapping regels laden...</div>';
+
+  if (!activeProduct) activeProduct = producten.find(p => p.brontype === 'CSV / Excel')?.naam || producten[0]?.naam;
+
+  try {
+    const mapData = await graph('GET', `/sites/${siteId}/lists/MappingRegels/items?$expand=fields&$top=500`);
+    const allMappings = mapData.value || [];
+
+    const productTiles = producten.map(p => {
+      const count = allMappings.filter(m => m.fields.Product === p.naam).length;
+      return `<div class="product-tile ${p.naam === activeProduct ? 'active' : ''}" onclick="selectProduct('${p.naam}')">
+        <div class="pname">${p.naam}</div>
+        <div class="pmeta">${count} regel${count !== 1 ? 's' : ''}</div>
+        <span class="badge ${p.brontype === 'AFAS koppeling' ? 'badge-auto' : p.brontype === 'CSV / Excel' ? 'badge-csv' : 'badge-mail'}">${p.brontype || '—'}</span>
+      </div>`;
+    }).join('');
+
+    const prod = producten.find(p => p.naam === activeProduct);
+    const mappings = allMappings.filter(m => m.fields.Product === activeProduct);
+
+    let editorHtml = '';
+    if (prod?.brontype === 'AFAS koppeling') {
+      editorHtml = `<div class="empty-state" style="color:var(--ts-success)">✓ Dit product heeft een directe AFAS-koppeling — geen kolom mapping nodig.</div>`;
+    } else {
+      editorHtml = `
+        <div class="card-header">
+          <h2>Mapping regels — ${activeProduct}</h2>
+          <button class="btn btn-primary btn-sm" onclick="addMappingRegel()">+ Regel toevoegen</button>
+        </div>
+        <div class="card-body" style="padding:0">
+          <table class="tbl">
+            <thead><tr><th>CSV kolom</th><th>CSV waarde</th><th>AFAS abonnement-ID</th><th>AFAS debiteur</th><th></th></tr></thead>
+            <tbody id="mappingTbody">
+              ${mappings.length === 0
+                ? `<tr><td colspan="5" style="text-align:center;color:var(--ts-muted);padding:20px">Nog geen regels — klik op Regel toevoegen</td></tr>`
+                : mappings.map(m => `
+                <tr data-id="${m.id}">
+                  <td><input value="${m.fields.CSVKolom || ''}" onchange="markDirty(this)" placeholder="bijv. Subscription Name" /></td>
+                  <td><input value="${m.fields.CSVWaarde || ''}" onchange="markDirty(this)" placeholder="bijv. Gold" /></td>
+                  <td><input value="${m.fields.AFASAbonnementID || ''}" onchange="markDirty(this)" placeholder="bijv. ABO-2041" /></td>
+                  <td><input value="${m.fields.AFASDebiteur || ''}" onchange="markDirty(this)" placeholder="optioneel" /></td>
+                  <td><button class="btn btn-danger btn-sm" onclick="deleteRegel('${m.id}', this)">Verwijder</button></td>
+                </tr>`).join('')
+              }
+            </tbody>
+          </table>
+        </div>
+        ${mappings.length > 0 ? `<div style="padding:12px 18px;border-top:1px solid var(--ts-border)"><button class="btn btn-primary btn-sm" onclick="saveMappings()">Wijzigingen opslaan</button></div>` : ''}`;
+    }
+
+    c.innerHTML = `
+      <div class="product-grid">${productTiles}</div>
+      <div class="card">${editorHtml}</div>`;
+  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+}
+
+function selectProduct(naam) {
+  activeProduct = naam;
+  renderMapping();
+}
+
+function markDirty(el) { el.closest('tr').dataset.dirty = '1'; }
+
+async function addMappingRegel() {
+  try {
+    await graph('POST', `/sites/${siteId}/lists/MappingRegels/items`, {
+      fields: { Title: `${activeProduct} - nieuw`, Product: activeProduct, CSVKolom: '', CSVWaarde: '', AFASAbonnementID: '', AFASDebiteur: '', Actief: true }
+    });
+    showToast('Regel toegevoegd', 'success');
+    renderMapping();
+  } catch(e) { showToast('Fout: ' + e.message, 'error'); }
+}
+
+async function saveMappings() {
+  const rows = document.querySelectorAll('#mappingTbody tr[data-dirty="1"]');
+  if (!rows.length) { showToast('Geen wijzigingen', ''); return; }
+  try {
+    for (const row of rows) {
+      const id = row.dataset.id;
+      const inputs = row.querySelectorAll('input');
+      await graph('PATCH', `/sites/${siteId}/lists/MappingRegels/items/${id}`, {
+        fields: { CSVKolom: inputs[0].value, CSVWaarde: inputs[1].value, AFASAbonnementID: inputs[2].value, AFASDebiteur: inputs[3].value }
+      });
+    }
+    showToast(`${rows.length} regel(s) opgeslagen`, 'success');
+    renderMapping();
+  } catch(e) { showToast('Fout bij opslaan: ' + e.message, 'error'); }
+}
+
+async function deleteRegel(id, btn) {
+  if (!confirm('Regel verwijderen?')) return;
+  btn.disabled = true;
+  try {
+    await graph('DELETE', `/sites/${siteId}/lists/MappingRegels/items/${id}`);
+    showToast('Regel verwijderd', 'success');
+    renderMapping();
+  } catch(e) { showToast('Fout: ' + e.message, 'error'); btn.disabled = false; }
+}
+
+// ── Validatie ────────────────────────────────────────────────────────────────
+async function renderValidatie() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Laden...</div>';
+  try {
+    const data = await graph('GET', `/sites/${siteId}/lists/Validatieregels/items?$expand=fields&$top=100`);
+    const items = data.value || [];
+    document.getElementById('topActions').innerHTML = `<button class="btn btn-primary btn-sm" onclick="saveValidatie()">Opslaan</button>`;
+    c.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h2>Validatieregels per product</h2></div>
+        <div class="card-body" style="padding:0">
+          <table class="tbl">
+            <thead><tr><th>Product</th><th>Prijs tolerantie %</th><th>Datum check</th><th>Verplichte kolommen</th><th>E-mail bij afwijking</th></tr></thead>
+            <tbody>
+              ${items.map(i => `
+              <tr data-id="${i.id}">
+                <td><strong>${i.fields.Product || i.fields.Title}</strong></td>
+                <td><input type="number" value="${i.fields.PrijsTolerantiePct || 5}" min="0" max="100" style="width:70px" /></td>
+                <td><input type="checkbox" ${i.fields.DatumCheck ? 'checked' : ''} style="width:auto" /></td>
+                <td><input value="${i.fields.VerplichteKolommen || ''}" placeholder="kommagescheiden" style="min-width:200px" /></td>
+                <td><input value="${i.fields.EmailBijAfwijking || ''}" placeholder="email@..." /></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+}
+
+async function saveValidatie() {
+  const rows = document.querySelectorAll('#mainContent tbody tr[data-id]');
+  try {
+    for (const row of rows) {
+      const id = row.dataset.id;
+      const inputs = row.querySelectorAll('input');
+      await graph('PATCH', `/sites/${siteId}/lists/Validatieregels/items/${id}`, {
+        fields: {
+          PrijsTolerantiePct: parseFloat(inputs[0].value) || 5,
+          DatumCheck: inputs[1].checked,
+          VerplichteKolommen: inputs[2].value,
+          EmailBijAfwijking: inputs[3].value,
+        }
+      });
+    }
+    showToast('Validatieregels opgeslagen', 'success');
+  } catch(e) { showToast('Fout: ' + e.message, 'error'); }
+}
+
+// ── Producten ─────────────────────────────────────────────────────────────────
+async function renderProducten() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Laden...</div>';
+  try {
+    const data = await graph('GET', `/sites/${siteId}/lists/Producten/items?$expand=fields&$top=100`);
+    const items = data.value || [];
+    document.getElementById('topActions').innerHTML = `<button class="btn btn-primary btn-sm" onclick="saveProducten()">Opslaan</button>`;
+    c.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h2>Productinstellingen</h2></div>
+        <div class="card-body" style="padding:0">
+          <table class="tbl">
+            <thead><tr><th>Product</th><th>Brontype</th><th>Bronlocatie</th><th>AFAS doorbelasting</th><th>Actief</th></tr></thead>
+            <tbody>
+              ${items.map(i => `
+              <tr data-id="${i.id}">
+                <td><strong>${i.fields.Title}</strong></td>
+                <td>
+                  <select class="tbl-select" style="width:150px">
+                    <option ${i.fields.Brontype==='CSV / Excel'?'selected':''}>CSV / Excel</option>
+                    <option ${i.fields.Brontype==='AFAS koppeling'?'selected':''}>AFAS koppeling</option>
+                    <option ${i.fields.Brontype==='Mail / handmatig'?'selected':''}>Mail / handmatig</option>
+                  </select>
+                </td>
+                <td><input value="${i.fields.Bronlocatie || ''}" /></td>
+                <td><input value="${i.fields.AFASDoorbelasting || ''}" /></td>
+                <td><input type="checkbox" ${i.fields.Actief ? 'checked' : ''} style="width:auto" /></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+}
+
+async function saveProducten() {
+  const rows = document.querySelectorAll('#mainContent tbody tr[data-id]');
+  try {
+    for (const row of rows) {
+      const id = row.dataset.id;
+      const sel = row.querySelector('select');
+      const inputs = row.querySelectorAll('input');
+      await graph('PATCH', `/sites/${siteId}/lists/Producten/items/${id}`, {
+        fields: {
+          Brontype: sel.value,
+          Bronlocatie: inputs[0].value,
+          AFASDoorbelasting: inputs[1].value,
+          Actief: inputs[2].checked,
+        }
+      });
+    }
+    await loadProducenten();
+    showToast('Producten opgeslagen', 'success');
+  } catch(e) { showToast('Fout: ' + e.message, 'error'); }
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => t.className = 'toast', 3000);
+}
+
+// ── Auto-login check ─────────────────────────────────────────────────────────
+(async () => {
+  await msalApp.initialize();
+  const btn = document.getElementById('loginBtn');
+  const btnText = document.getElementById('loginBtnText');
+  if (btn) { btn.disabled = false; btnText.textContent = 'Inloggen met Microsoft'; }
+  const accounts = msalApp.getAllAccounts();
+  if (accounts.length) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appShell').style.display = 'flex';
+    document.getElementById('sidebarUser').textContent = accounts[0].name || accounts[0].username;
+    try {
+      const site = await graph('GET', `/sites/threadstonecs.sharepoint.com:/sites/team_finance`);
+      siteId = site.id;
+      await loadProducenten();
+      showTab('dashboard');
+    } catch(e) {
+      document.getElementById('mainContent').innerHTML = `<div class="empty-state">Fout bij laden: ${e.message}</div>`;
+    }
+  }
+})();
+</script>
+</body>
+</html>
