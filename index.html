@@ -1015,22 +1015,27 @@ async function startSync() {
     try {
       if (row.status === 'changed') {
         // Update bestaande regel via UpdateConnector
-        const fields = { "QuUn": row.seats };
+        const lineFields = { "Qu": row.seats };
         if (row.endDate) {
-          fields["EdDt"] = new Date(row.endDate).toISOString().split('T')[0];
-          fields["RsEn"] = "03";
+          lineFields["DaEn"] = new Date(row.endDate).toISOString().split('T')[0];
+          lineFields["VaRs"] = "03";
         }
-        if (row.discount) fields["Disc"] = row.discount;
+        if (row.discount) lineFields["DcPr"] = row.discount;
         const body = {
-          "KnFbSubscriptionLines": {
+          "FbSubscription": {
             "Element": {
-              "@AbNr": row.afasRegel.Nummer_abonnement,
-              "@RgNr": row.afasRegel.Regelnummer,
-              "Fields": fields
+              "Fields": { "SuNr": row.afasRegel.Nummer_abonnement },
+              "Objects": {
+                "FbSubscriptionLines": {
+                  "Element": {
+                    "Fields": { "Id": parseInt(row.afasRegel.Regelnummer), ...lineFields }
+                  }
+                }
+              }
             }
           }
         };
-        const r = await fetch(`${AFAS_BASE}/connectors/KnFbSubscriptionLines`, {
+        const r = await fetch(`${AFAS_BASE}/connectors/FbSubscription`, {
           method: 'PUT',
           headers: afasHeaders(),
           body: JSON.stringify(body)
