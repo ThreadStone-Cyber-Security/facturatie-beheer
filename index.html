@@ -139,6 +139,8 @@
   .diff-badge.changed { background: #fffbeb; color: var(--ts-warning); }
   .diff-badge.closed { background: var(--ts-danger-bg); color: var(--ts-danger); }
   .diff-badge.ok { background: var(--ts-light); color: var(--ts-muted); }
+  .diff-badge.ignored { background: #f1f5f9; color: #94a3b8; }
+  .diff-ignored td { opacity: 0.4; }
   .afas-token-input { width: 100%; border: 1px solid var(--ts-border); border-radius: 5px; padding: 8px 12px; font-size: 13px; font-family: monospace; color: var(--ts-blue); background: var(--ts-white); margin-bottom: 8px; }
   .progress-bar { height: 6px; background: var(--ts-border); border-radius: 3px; margin: 12px 0; overflow: hidden; }
   .progress-fill { height: 100%; background: var(--ts-accent); border-radius: 3px; transition: width 0.3s; }
@@ -620,15 +622,15 @@ function renderStep1(c) {
       <div class="card-body">
         <div class="upload-zone" onclick="document.getElementById('excelUpload').click()">
           <div class="icon">📂</div>
-          <p><strong>Klik om een Excel bestand te selecteren</strong><br>Verplicht: Customer, Product, Quantity<br>Optioneel: Start date, End date, Discount %</p>
+          <p><strong>Klik om een Excel bestand te selecteren</strong><br>Verplicht: Customer, Product, Quantity<br>Optioneel: Subscription Line ID, Start date, End date, Discount %</p>
           <input type="file" id="excelUpload" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(this)" />
         </div>
         ${excelRows.length > 0 ? `
         <div style="margin-top:16px">
           <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--ts-success)">✓ ${excelRows.length} rijen geladen</div>
           <table class="tbl">
-            <thead><tr><th>Customer</th><th>Product</th><th>Quantity</th><th>Start Date</th><th>End Date</th><th>Discount %</th></tr></thead>
-            <tbody>${excelRows.slice(0,5).map(r => `<tr><td>${r.org}</td><td>${r.billingType}</td><td>${r.seats}</td><td>${r.startDate||'—'}</td><td>${r.endDate||'—'}</td><td>${r.discount||0}%</td></tr>`).join('')}
+            <thead><tr><th>Customer</th><th>Product</th><th>Quantity</th><th>Line ID</th><th>Start Date</th><th>End Date</th><th>Discount %</th></tr></thead>
+            <tbody>${excelRows.slice(0,5).map(r => `<tr><td>${r.org}</td><td>${r.billingType}</td><td>${r.seats}</td><td>${r.lineId ? `<span class='tag'>${r.lineId}</span>` : '—'}</td><td>${r.startDate||'—'}</td><td>${r.endDate||'—'}</td><td>${r.discount||0}%</td></tr>`).join('')}
             ${excelRows.length > 5 ? `<tr><td colspan="4" style="color:var(--ts-muted);text-align:center">... en ${excelRows.length-5} meer</td></tr>` : ''}
             </tbody>
           </table>
@@ -676,6 +678,7 @@ async function handleFileUpload(input) {
       startDate: row['Start date'] || row['Start Date'] || '',
       endDate: row['End date'] || row['End Date'] || '',
       discount: parseFloat(row['Discount %'] || row['Discount'] || 0) || 0,
+      lineId: row['Subscription Line ID'] || row['Regelnummer'] || '',
       raw: row
     })).filter(r => r.org && r.billingType && r.seats > 0);
   }
@@ -766,6 +769,37 @@ function renderStep2(c) {
     </div>`;
 }
 
+let ignoredRows = new Set(); // set of "org|billingType" keys
+
+function toggleIgnore(key, btn) {
+  if (ignoredRows.has(key)) {
+    ignoredRows.delete(key);
+    btn.textContent = 'Negeer';
+    btn.classList.remove('btn-secondary');
+    btn.classList.add('btn-danger');
+    const row = btn.closest('tr');
+    row.classList.remove('diff-ignored');
+    // restore original status badge
+    const badge = row.querySelector('.diff-badge');
+    if (badge) badge.style.display = '';
+  } else {
+    ignoredRows.add(key);
+    btn.textContent = 'Herstellen';
+    btn.classList.remove('btn-danger');
+    btn.classList.add('btn-secondary');
+    const row = btn.closest('tr');
+    row.classList.add('diff-ignored');
+    const badge = row.querySelector('.diff-badge');
+    if (badge) badge.style.display = 'none';
+    row.querySelector('.ignore-badge').style.display = '';
+  }
+  // update sync button count
+  const toSync = diffResult.filter(r => (r.status === 'new' || r.status === 'changed') && !ignoredRows.has(r.org + '|' + r.billingType));
+  const syncBtn = document.getElementById('syncPreviewBtn');
+  if (syncBtn) syncBtn.textContent = `Sync uitvoeren (${toSync.length} wijzigingen) →`;
+  if (syncBtn) syncBtn.disabled = toSync.length === 0;
+}
+
 function filterItemDropdown(input, selectId) {
   const q = input.value.toLowerCase();
   const sel = document.getElementById(selectId);
@@ -830,7 +864,13 @@ async function saveMappingsAndPreview() {
       diffResult.push({ ...row, status: 'no_mapping', afasRegel: null });
       continue;
     }
-    const existing = afasRegels.find(r => r.OrganisatieId === relId && r.Itemcode === itemcode);
+    // Match on lineId directly if provided, otherwise match on relId + itemcode
+    let existing;
+    if (row.lineId) {
+      existing = afasRegels.find(r => String(r.Regelnummer) === String(row.lineId));
+    } else {
+      existing = afasRegels.find(r => r.OrganisatieId === relId && r.Itemcode === itemcode);
+    }
     if (!existing) {
       diffResult.push({ ...row, relId, itemcode, status: 'new', afasRegel: null });
     } else if (Math.abs(existing.Aantal - row.seats) > 0.01 || (row.endDate && row.endDate !== '') || (row.discount && Math.abs((existing.Korting||0) - row.discount) > 0.01)) {
@@ -859,22 +899,32 @@ function renderStep3(c) {
       <div class="card-header"><h2>Sync preview</h2></div>
       <div class="card-body" style="padding:0">
         <table class="tbl">
-          <thead><tr><th>Customer</th><th>Product</th><th>Quantity huidig</th><th>Quantity nieuw</th><th>Einddatum</th><th>Korting %</th><th>Status</th></tr></thead>
+          <thead><tr><th>Customer</th><th>Product</th><th>Line ID</th><th>Quantity huidig</th><th>Quantity nieuw</th><th>Einddatum</th><th>Korting %</th><th>Status</th><th></th></tr></thead>
           <tbody>
             ${diffResult.map(r => `
             <tr class="diff-${r.status}">
               <td>${r.org}</td>
               <td>${r.billingType}</td>
+              <td>${r.lineId ? `<span class="tag">${r.lineId}</span>` : (r.afasRegel ? `<span class="tag" style="background:var(--ts-success-bg);color:var(--ts-success)">${r.afasRegel.Regelnummer}</span>` : '—')}</td>
               <td>${r.afasRegel ? r.afasRegel.Aantal : '—'}</td>
               <td>${r.seats}</td>
               <td>${r.endDate || '—'}</td>
               <td>${r.discount ? r.discount + '%' : '—'}</td>
-              <td><span class="diff-badge ${r.status}">${
-                r.status === 'new' ? '+ Nieuw' :
-                r.status === 'changed' ? '~ Gewijzigd' :
-                r.status === 'ok' ? '✓ OK' :
-                r.status === 'no_mapping' ? '⚠ Geen mapping' : r.status
-              }</span></td>
+              <td>
+                <span class="diff-badge ${r.status}" style="${ignoredRows.has(r.org+'|'+r.billingType) ? 'display:none' : ''}">${
+                  r.status === 'new' ? '+ Nieuw' :
+                  r.status === 'changed' ? '~ Gewijzigd' :
+                  r.status === 'ok' ? '✓ OK' :
+                  r.status === 'no_mapping' ? '⚠ Geen mapping' : r.status
+                }</span>
+                <span class="diff-badge ignored ignore-badge" style="${ignoredRows.has(r.org+'|'+r.billingType) ? '' : 'display:none'}">Genegeerd</span>
+              </td>
+              <td>${r.status !== 'ok' && r.status !== 'no_mapping' ? `
+                <button class="btn btn-sm ${ignoredRows.has(r.org+'|'+r.billingType) ? 'btn-secondary' : 'btn-danger'}"
+                  onclick="toggleIgnore('${r.org}|${r.billingType}', this)">
+                  ${ignoredRows.has(r.org+'|'+r.billingType) ? 'Herstellen' : 'Negeer'}
+                </button>` : ''}
+              </td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -882,14 +932,14 @@ function renderStep3(c) {
     </div>
     <div style="margin-top:16px;display:flex;justify-content:space-between">
       <button class="btn btn-secondary" onclick="syncStep=2;renderSyncStep()">← Terug</button>
-      <button class="btn btn-primary" onclick="syncStep=4;renderSyncStep()" ${counts.new+counts.changed===0?'disabled':''}>
-        Sync uitvoeren (${counts.new+counts.changed} wijzigingen) →
+      <button class="btn btn-primary" id="syncPreviewBtn" onclick="syncStep=4;renderSyncStep()" ${counts.new+counts.changed===0?'disabled':''}>
+        Sync uitvoeren (${counts.new+counts.changed - ignoredRows.size} wijzigingen) →
       </button>
     </div>`;
 }
 
 function renderStep4(c) {
-  const toSync = diffResult.filter(r => r.status === 'new' || r.status === 'changed');
+  const toSync = diffResult.filter(r => (r.status === 'new' || r.status === 'changed') && !ignoredRows.has(r.org + '|' + r.billingType));
   c.innerHTML = `
     <div class="card">
       <div class="card-header"><h2>Sync uitvoeren</h2></div>
@@ -907,7 +957,7 @@ function renderStep4(c) {
 
 async function startSync() {
   document.getElementById('startSyncBtn').disabled = true;
-  const toSync = diffResult.filter(r => r.status === 'new' || r.status === 'changed');
+  const toSync = diffResult.filter(r => (r.status === 'new' || r.status === 'changed') && !ignoredRows.has(r.org + '|' + r.billingType));
   const log = document.getElementById('syncLog');
   const bar = document.getElementById('syncProgress');
   let done = 0;
