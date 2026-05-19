@@ -115,6 +115,33 @@
   .tag { display: inline-flex; align-items: center; gap: 4px; background: var(--ts-light); color: var(--ts-accent); border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
   select.tbl-select { width: 100%; border: 1px solid var(--ts-border); border-radius: 5px; padding: 5px 8px; font-size: 13px; font-family: inherit; color: var(--ts-blue); background: var(--ts-white); }
   select.tbl-select:focus { outline: none; border-color: var(--ts-accent); }
+  .sync-step { display: none; }
+  .sync-step.active { display: block; }
+  .step-indicator { display: flex; gap: 0; margin-bottom: 24px; }
+  .step-dot { flex: 1; text-align: center; padding: 10px; font-size: 12px; font-weight: 600; color: var(--ts-muted); border-bottom: 3px solid var(--ts-border); }
+  .step-dot.active { color: var(--ts-accent); border-color: var(--ts-accent); }
+  .step-dot.done { color: var(--ts-success); border-color: var(--ts-success); }
+  .upload-zone { border: 2px dashed var(--ts-border); border-radius: var(--radius); padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
+  .upload-zone:hover { border-color: var(--ts-accent); background: var(--ts-light); }
+  .upload-zone input { display: none; }
+  .upload-zone .icon { font-size: 32px; margin-bottom: 8px; }
+  .upload-zone p { color: var(--ts-muted); font-size: 13px; }
+  .mapping-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .mapping-table th { background: var(--ts-bg); padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ts-muted); text-align: left; border-bottom: 1px solid var(--ts-border); }
+  .mapping-table td { padding: 8px 12px; border-bottom: 1px solid var(--ts-border); font-size: 13px; vertical-align: middle; }
+  .mapping-table select { width: 100%; border: 1px solid var(--ts-border); border-radius: 5px; padding: 5px 8px; font-size: 13px; background: var(--ts-white); color: var(--ts-blue); }
+  .diff-new { background: var(--ts-success-bg); }
+  .diff-changed { background: #fffbeb; }
+  .diff-closed { background: var(--ts-danger-bg); }
+  .diff-unchanged { background: var(--ts-white); }
+  .diff-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px; }
+  .diff-badge.new { background: var(--ts-success-bg); color: var(--ts-success); }
+  .diff-badge.changed { background: #fffbeb; color: var(--ts-warning); }
+  .diff-badge.closed { background: var(--ts-danger-bg); color: var(--ts-danger); }
+  .diff-badge.ok { background: var(--ts-light); color: var(--ts-muted); }
+  .afas-token-input { width: 100%; border: 1px solid var(--ts-border); border-radius: 5px; padding: 8px 12px; font-size: 13px; font-family: monospace; color: var(--ts-blue); background: var(--ts-white); margin-bottom: 8px; }
+  .progress-bar { height: 6px; background: var(--ts-border); border-radius: 3px; margin: 12px 0; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--ts-accent); border-radius: 3px; transition: width 0.3s; }
 </style>
 </head>
 <body>
@@ -154,6 +181,10 @@
       <div class="nav-item" onclick="showTab('producten')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
         Producten
+      </div>
+      <div class="nav-item" onclick="showTab('sync')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        AFAS Sync
       </div>
     </nav>
     <div class="sidebar-user">
@@ -262,14 +293,15 @@ async function loadProducenten() {
 // ── Tab routing ──────────────────────────────────────────────────────────────
 function showTab(tab) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[['dashboard','mapping','validatie','producten'].indexOf(tab)]?.classList.add('active');
-  const titles = { dashboard: 'Dashboard', mapping: 'Kolom mapping', validatie: 'Validatieregels', producten: 'Producten' };
+  document.querySelectorAll('.nav-item')[['dashboard','mapping','validatie','producten','sync'].indexOf(tab)]?.classList.add('active');
+  const titles = { dashboard: 'Dashboard', mapping: 'Kolom mapping', validatie: 'Validatieregels', producten: 'Producten', sync: 'AFAS Sync' };
   document.getElementById('pageTitle').textContent = titles[tab];
   document.getElementById('topActions').innerHTML = '';
   if (tab === 'dashboard') renderDashboard();
   else if (tab === 'mapping') renderMapping();
   else if (tab === 'validatie') renderValidatie();
   else if (tab === 'producten') renderProducten();
+  else if (tab === 'sync') renderSync();
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
@@ -524,6 +556,386 @@ async function saveProducten() {
     await loadProducenten();
     showToast('Producten opgeslagen', 'success');
   } catch(e) { showToast('Fout: ' + e.message, 'error'); }
+}
+
+
+// ── AFAS Sync ─────────────────────────────────────────────────────────────────
+const AFAS_BASE = 'https://36333.rest.afas.online/ProfitRestServices';
+let afasToken = '';
+let syncStep = 1;
+let excelRows = [];
+let orgMappings = {};      // org naam → AFAS VerkoopRelID
+let itemMappings = {};     // billing type → AFAS Itemcode
+let afasRelaties = [];
+let afasItems = [];
+let afasRegels = [];
+let diffResult = [];
+
+function afasHeaders() {
+  const b64 = btoa(afasToken);
+  return { 'Authorization': `AfasToken ${b64}`, 'Content-Type': 'application/json' };
+}
+
+async function afasGet(connector, filters) {
+  let url = `${AFAS_BASE}/connectors/${connector}?skip=0&take=1000`;
+  if (filters) url += `&filterfieldids=${filters.field}&filtervalues=${filters.value}&operatortypes=1`;
+  const r = await fetch(url, { headers: afasHeaders() });
+  if (!r.ok) throw new Error(`AFAS ${connector}: ${r.status}`);
+  const d = await r.json();
+  return d.rows || [];
+}
+
+function renderSync() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = `
+    <div class="step-indicator">
+      <div class="step-dot ${syncStep >= 1 ? (syncStep > 1 ? 'done' : 'active') : ''}" id="step1dot">1. Bestand & token</div>
+      <div class="step-dot ${syncStep >= 2 ? (syncStep > 2 ? 'done' : 'active') : ''}" id="step2dot">2. Koppelen</div>
+      <div class="step-dot ${syncStep >= 3 ? (syncStep > 3 ? 'done' : 'active') : ''}" id="step3dot">3. Preview</div>
+      <div class="step-dot ${syncStep >= 4 ? 'active' : ''}" id="step4dot">4. Sync</div>
+    </div>
+    <div id="sync-content"></div>`;
+  renderSyncStep();
+}
+
+function renderSyncStep() {
+  const c = document.getElementById('sync-content');
+  if (syncStep === 1) renderStep1(c);
+  else if (syncStep === 2) renderStep2(c);
+  else if (syncStep === 3) renderStep3(c);
+  else if (syncStep === 4) renderStep4(c);
+}
+
+function renderStep1(c) {
+  c.innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>AFAS Token</h2></div>
+      <div class="card-body">
+        <p style="font-size:13px;color:var(--ts-muted);margin-bottom:10px">Voer je AFAS API token in (wordt niet opgeslagen)</p>
+        <input class="afas-token-input" id="afasTokenInput" type="password" placeholder='&lt;token&gt;&lt;version&gt;1&lt;/version&gt;&lt;data&gt;...&lt;/data&gt;&lt;/token&gt;' value="${afasToken}" />
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Excel importbestand</h2></div>
+      <div class="card-body">
+        <div class="upload-zone" onclick="document.getElementById('excelUpload').click()">
+          <div class="icon">📂</div>
+          <p><strong>Klik om een Excel bestand te selecteren</strong><br>Kolommen: Organization, Billing Type, Seats, End Date</p>
+          <input type="file" id="excelUpload" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(this)" />
+        </div>
+        ${excelRows.length > 0 ? `
+        <div style="margin-top:16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--ts-success)">✓ ${excelRows.length} rijen geladen</div>
+          <table class="tbl">
+            <thead><tr><th>Organization</th><th>Billing Type</th><th>Seats</th><th>End Date</th></tr></thead>
+            <tbody>${excelRows.slice(0,5).map(r => `<tr><td>${r.org}</td><td>${r.billingType}</td><td>${r.seats}</td><td>${r.endDate||'—'}</td></tr>`).join('')}
+            ${excelRows.length > 5 ? `<tr><td colspan="4" style="color:var(--ts-muted);text-align:center">... en ${excelRows.length-5} meer</td></tr>` : ''}
+            </tbody>
+          </table>
+        </div>` : ''}
+      </div>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end">
+      <button class="btn btn-primary" onclick="goStep2()" ${excelRows.length === 0 ? 'disabled' : ''}>Volgende: Koppelen →</button>
+    </div>`;
+}
+
+async function handleFileUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  afasToken = document.getElementById('afasTokenInput').value;
+
+  // Parse CSV or Excel
+  if (file.name.endsWith('.csv')) {
+    const text = await file.text();
+    const lines = text.trim().split('\n');
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g,''));
+    excelRows = lines.slice(1).map(line => {
+      const cols = line.split(',').map(c => c.trim().replace(/"/g,''));
+      const row = {};
+      headers.forEach((h,i) => row[h] = cols[i]);
+      return {
+        org: row['Organization'] || row['organization'] || '',
+        billingType: row['Billing Type'] || row['billing_type'] || row['BillingType'] || '',
+        seats: parseFloat(row['Seats'] || row['seats'] || 0),
+        endDate: row['End Date'] || row['end_date'] || row['EndDate'] || '',
+        raw: row
+      };
+    }).filter(r => r.org);
+  } else {
+    // Excel via SheetJS
+    const buf = await file.arrayBuffer();
+    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+    const wb = XLSX.read(buf);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(ws);
+    excelRows = data.map(row => ({
+      org: row['Organization'] || row['organization'] || '',
+      billingType: row['Billing Type'] || row['billing_type'] || row['BillingType'] || '',
+      seats: parseFloat(row['Seats'] || row['seats'] || 0),
+      endDate: row['End Date'] || row['end_date'] || row['EndDate'] || '',
+      raw: row
+    })).filter(r => r.org);
+  }
+  renderSyncStep();
+}
+
+async function goStep2() {
+  afasToken = document.getElementById('afasTokenInput').value;
+  if (!afasToken) { showToast('Vul eerst het AFAS token in', 'error'); return; }
+
+  const c = document.getElementById('sync-content');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> AFAS data ophalen...</div>';
+
+  try {
+    [afasRelaties, afasItems] = await Promise.all([
+      afasGet('PowerP_Verkooprelaties'),
+      afasGet('PowerP_Items'),
+    ]);
+
+    // Load saved org mappings from SharePoint
+    try {
+      const spData = await graph('GET', `/sites/${siteId}/lists/OrgMappings/items?$expand=fields&$top=500`);
+      (spData.value || []).forEach(i => { orgMappings[i.fields.Title] = i.fields.AFASVerkoopRelID; });
+    } catch(e) { /* lijst bestaat nog niet */ }
+
+    // Load saved item mappings from MappingRegels
+    try {
+      const mapData = await graph('GET', `/sites/${siteId}/lists/MappingRegels/items?$expand=fields&$top=500`);
+      (mapData.value || []).filter(i => i.fields.Product === 'Knowbe4').forEach(i => {
+        itemMappings[i.fields.CSVWaarde] = i.fields.AFASAbonnementID;
+      });
+    } catch(e) {}
+
+    syncStep = 2;
+    renderSyncStep();
+  } catch(e) { showToast('AFAS fout: ' + e.message, 'error'); renderSyncStep(); }
+}
+
+function renderStep2(c) {
+  const uniqueOrgs = [...new Set(excelRows.map(r => r.org))];
+  const uniqueTypes = [...new Set(excelRows.map(r => r.billingType))];
+
+  c.innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>Koppel organisaties aan AFAS verkooprelaties</h2></div>
+      <div class="card-body" style="padding:0">
+        <table class="mapping-table">
+          <thead><tr><th>Knowbe4 organisatie</th><th>AFAS verkooprelatie</th></tr></thead>
+          <tbody>
+            ${uniqueOrgs.map(org => `
+            <tr>
+              <td><strong>${org}</strong></td>
+              <td>
+                <select id="orgmap_${btoa(org).replace(/=/g,'')}">
+                  <option value="">— Selecteer AFAS relatie —</option>
+                  ${afasRelaties.map(r => `<option value="${r.VerkoopRelID}" ${orgMappings[org]===r.VerkoopRelID?'selected':''}>${r.Verkooprelatie} (${r.VerkoopRelID})</option>`).join('')}
+                </select>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>Koppel Billing Type aan AFAS artikel</h2></div>
+      <div class="card-body" style="padding:0">
+        <table class="mapping-table">
+          <thead><tr><th>Knowbe4 Billing Type</th><th>AFAS artikel (Itemcode)</th></tr></thead>
+          <tbody>
+            ${uniqueTypes.map(type => `
+            <tr>
+              <td><strong>${type}</strong></td>
+              <td>
+                <select id="typemap_${btoa(type).replace(/=/g,'')}">
+                  <option value="">— Selecteer AFAS artikel —</option>
+                  ${afasItems.filter(i => !i.Geblokkeerd).map(i => `<option value="${i.Itemcode}" ${itemMappings[type]===i.Itemcode?'selected':''}>${i.Omschrijving} (${i.Itemcode})</option>`).join('')}
+                </select>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:space-between">
+      <button class="btn btn-secondary" onclick="syncStep=1;renderSyncStep()">← Terug</button>
+      <button class="btn btn-primary" onclick="saveMappingsAndPreview()">Opslaan & Preview →</button>
+    </div>`;
+}
+
+async function saveMappingsAndPreview() {
+  const c = document.getElementById('sync-content');
+
+  // Collect org mappings
+  const uniqueOrgs = [...new Set(excelRows.map(r => r.org))];
+  uniqueOrgs.forEach(org => {
+    const key = btoa(org).replace(/=/g,'');
+    const sel = document.getElementById(`orgmap_${key}`);
+    if (sel?.value) orgMappings[org] = sel.value;
+  });
+
+  // Collect item mappings
+  const uniqueTypes = [...new Set(excelRows.map(r => r.billingType))];
+  uniqueTypes.forEach(type => {
+    const key = btoa(type).replace(/=/g,'');
+    const sel = document.getElementById(`typemap_${key}`);
+    if (sel?.value) itemMappings[type] = sel.value;
+  });
+
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Mappings opslaan & AFAS vergelijken...</div>';
+
+  // Save org mappings to SharePoint OrgMappings list
+  try {
+    for (const [org, relId] of Object.entries(orgMappings)) {
+      await graph('POST', `/sites/${siteId}/lists/OrgMappings/items`, {
+        fields: { Title: org, AFASVerkoopRelID: relId, Product: 'Knowbe4' }
+      }).catch(() => {}); // ignore duplicates
+    }
+  } catch(e) {}
+
+  // Save item mappings to MappingRegels
+  try {
+    for (const [type, itemcode] of Object.entries(itemMappings)) {
+      await graph('POST', `/sites/${siteId}/lists/MappingRegels/items`, {
+        fields: { Title: `Knowbe4 - ${type}`, Product: 'Knowbe4', CSVWaarde: type, AFASAbonnementID: itemcode }
+      }).catch(() => {});
+    }
+  } catch(e) {}
+
+  // Fetch current AFAS abonnementregels for mapped relaties
+  try {
+    const relIds = Object.values(orgMappings);
+    afasRegels = await afasGet('PowerP_Abonnementregels');
+    afasRegels = afasRegels.filter(r => relIds.includes(r.OrganisatieId));
+  } catch(e) { showToast('AFAS fout bij ophalen regels: ' + e.message, 'error'); return; }
+
+  // Build diff
+  diffResult = [];
+  for (const row of excelRows) {
+    const relId = orgMappings[row.org];
+    const itemcode = itemMappings[row.billingType];
+    if (!relId || !itemcode) {
+      diffResult.push({ ...row, status: 'no_mapping', afasRegel: null });
+      continue;
+    }
+    const existing = afasRegels.find(r => r.OrganisatieId === relId && r.Itemcode === itemcode);
+    if (!existing) {
+      diffResult.push({ ...row, relId, itemcode, status: 'new', afasRegel: null });
+    } else if (Math.abs(existing.Aantal - row.seats) > 0.01) {
+      diffResult.push({ ...row, relId, itemcode, status: 'changed', afasRegel: existing, oldSeats: existing.Aantal });
+    } else {
+      diffResult.push({ ...row, relId, itemcode, status: 'ok', afasRegel: existing });
+    }
+  }
+
+  syncStep = 3;
+  renderSyncStep();
+}
+
+function renderStep3(c) {
+  const counts = { new: 0, changed: 0, closed: 0, ok: 0, no_mapping: 0 };
+  diffResult.forEach(r => counts[r.status]++);
+
+  c.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:16px">
+      <div class="stat-card"><div class="stat-val" style="color:var(--ts-success)">${counts.new}</div><div class="stat-lbl">Nieuw</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--ts-warning)">${counts.changed}</div><div class="stat-lbl">Gewijzigd</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--ts-muted)">${counts.ok}</div><div class="stat-lbl">Ongewijzigd</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--ts-danger)">${counts.no_mapping}</div><div class="stat-lbl">Geen mapping</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>Sync preview</h2></div>
+      <div class="card-body" style="padding:0">
+        <table class="tbl">
+          <thead><tr><th>Organisatie</th><th>Billing Type</th><th>Seats huidig</th><th>Seats nieuw</th><th>Status</th></tr></thead>
+          <tbody>
+            ${diffResult.map(r => `
+            <tr class="diff-${r.status}">
+              <td>${r.org}</td>
+              <td>${r.billingType}</td>
+              <td>${r.afasRegel ? r.afasRegel.Aantal : '—'}</td>
+              <td>${r.seats}</td>
+              <td><span class="diff-badge ${r.status}">${
+                r.status === 'new' ? '+ Nieuw' :
+                r.status === 'changed' ? '~ Gewijzigd' :
+                r.status === 'ok' ? '✓ OK' :
+                r.status === 'no_mapping' ? '⚠ Geen mapping' : r.status
+              }</span></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:space-between">
+      <button class="btn btn-secondary" onclick="syncStep=2;renderSyncStep()">← Terug</button>
+      <button class="btn btn-primary" onclick="syncStep=4;renderSyncStep()" ${counts.new+counts.changed===0?'disabled':''}>
+        Sync uitvoeren (${counts.new+counts.changed} wijzigingen) →
+      </button>
+    </div>`;
+}
+
+function renderStep4(c) {
+  const toSync = diffResult.filter(r => r.status === 'new' || r.status === 'changed');
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h2>Sync uitvoeren</h2></div>
+      <div class="card-body">
+        <p style="font-size:13px;margin-bottom:16px">${toSync.length} wijzigingen worden naar AFAS geschreven.</p>
+        <div class="progress-bar"><div class="progress-fill" id="syncProgress" style="width:0%"></div></div>
+        <div id="syncLog" style="font-size:12px;font-family:monospace;background:var(--ts-bg);border-radius:var(--radius);padding:12px;max-height:300px;overflow-y:auto;margin-top:12px"></div>
+        <div style="margin-top:16px;display:flex;justify-content:space-between">
+          <button class="btn btn-secondary" onclick="syncStep=3;renderSyncStep()">← Terug</button>
+          <button class="btn btn-primary" id="startSyncBtn" onclick="startSync()">▶ Start sync</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function startSync() {
+  document.getElementById('startSyncBtn').disabled = true;
+  const toSync = diffResult.filter(r => r.status === 'new' || r.status === 'changed');
+  const log = document.getElementById('syncLog');
+  const bar = document.getElementById('syncProgress');
+  let done = 0;
+
+  for (const row of toSync) {
+    try {
+      if (row.status === 'changed') {
+        // Update bestaande regel via UpdateConnector
+        const body = {
+          "KnFbSubscriptionLines": {
+            "Element": {
+              "@AbNr": row.afasRegel.Nummer_abonnement,
+              "@RgNr": row.afasRegel.Regelnummer,
+              "Fields": {
+                "QuUn": row.seats
+              }
+            }
+          }
+        };
+        const r = await fetch(`${AFAS_BASE}/connectors/KnFbSubscriptionLines`, {
+          method: 'PUT',
+          headers: afasHeaders(),
+          body: JSON.stringify(body)
+        });
+        if (r.ok) {
+          log.innerHTML += `<div style="color:var(--ts-success)">✓ ${row.org} — Seats bijgewerkt: ${row.oldSeats} → ${row.seats}</div>`;
+        } else {
+          const err = await r.text();
+          log.innerHTML += `<div style="color:var(--ts-danger)">✗ ${row.org} — Fout: ${err.substring(0,100)}</div>`;
+        }
+      } else if (row.status === 'new') {
+        log.innerHTML += `<div style="color:var(--ts-warning)">⚠ ${row.org} — Nieuw abonnement aanmaken vereist handmatige actie in AFAS (nog niet geautomatiseerd)</div>`;
+      }
+    } catch(e) {
+      log.innerHTML += `<div style="color:var(--ts-danger)">✗ ${row.org} — ${e.message}</div>`;
+    }
+    done++;
+    bar.style.width = `${Math.round(done/toSync.length*100)}%`;
+    log.scrollTop = log.scrollHeight;
+  }
+  log.innerHTML += `<div style="margin-top:8px;font-weight:600;color:var(--ts-blue)">── Sync voltooid ──</div>`;
+  showToast('Sync klaar!', 'success');
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────
