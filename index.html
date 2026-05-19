@@ -620,15 +620,15 @@ function renderStep1(c) {
       <div class="card-body">
         <div class="upload-zone" onclick="document.getElementById('excelUpload').click()">
           <div class="icon">📂</div>
-          <p><strong>Klik om een Excel bestand te selecteren</strong><br>Kolommen: Organization, Billing Type, Seats, End Date</p>
+          <p><strong>Klik om een Excel bestand te selecteren</strong><br>Verplicht: Customer, Product, Quantity<br>Optioneel: Start date, End date, Discount %</p>
           <input type="file" id="excelUpload" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(this)" />
         </div>
         ${excelRows.length > 0 ? `
         <div style="margin-top:16px">
           <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--ts-success)">✓ ${excelRows.length} rijen geladen</div>
           <table class="tbl">
-            <thead><tr><th>Organization</th><th>Billing Type</th><th>Seats</th><th>End Date</th></tr></thead>
-            <tbody>${excelRows.slice(0,5).map(r => `<tr><td>${r.org}</td><td>${r.billingType}</td><td>${r.seats}</td><td>${r.endDate||'—'}</td></tr>`).join('')}
+            <thead><tr><th>Customer</th><th>Product</th><th>Quantity</th><th>Start Date</th><th>End Date</th><th>Discount %</th></tr></thead>
+            <tbody>${excelRows.slice(0,5).map(r => `<tr><td>${r.org}</td><td>${r.billingType}</td><td>${r.seats}</td><td>${r.startDate||'—'}</td><td>${r.endDate||'—'}</td><td>${r.discount||0}%</td></tr>`).join('')}
             ${excelRows.length > 5 ? `<tr><td colspan="4" style="color:var(--ts-muted);text-align:center">... en ${excelRows.length-5} meer</td></tr>` : ''}
             </tbody>
           </table>
@@ -670,12 +670,14 @@ async function handleFileUpload(input) {
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws);
     excelRows = data.map(row => ({
-      org: row['Organization'] || row['organization'] || '',
-      billingType: row['Billing Type'] || row['billing_type'] || row['BillingType'] || '',
-      seats: parseFloat(row['Seats'] || row['seats'] || 0),
-      endDate: row['End Date'] || row['end_date'] || row['EndDate'] || '',
+      org: row['Customer'] || row['Organization'] || '',
+      billingType: row['Product'] || row['Billing Type'] || '',
+      seats: parseFloat(row['Quantity'] || row['Seats'] || 0),
+      startDate: row['Start date'] || row['Start Date'] || '',
+      endDate: row['End date'] || row['End Date'] || '',
+      discount: parseFloat(row['Discount %'] || row['Discount'] || 0) || 0,
       raw: row
-    })).filter(r => r.org);
+    })).filter(r => r.org && r.billingType && r.seats > 0);
   }
   renderSyncStep();
 }
@@ -721,7 +723,7 @@ function renderStep2(c) {
       <div class="card-header"><h2>Koppel organisaties aan AFAS verkooprelaties</h2></div>
       <div class="card-body" style="padding:0">
         <table class="mapping-table">
-          <thead><tr><th>Knowbe4 organisatie</th><th>AFAS verkooprelatie</th></tr></thead>
+          <thead><tr><th>Customer (importbestand)</th><th>AFAS verkooprelatie</th></tr></thead>
           <tbody>
             ${uniqueOrgs.map(org => `
             <tr>
@@ -741,15 +743,16 @@ function renderStep2(c) {
       <div class="card-header"><h2>Koppel Billing Type aan AFAS artikel</h2></div>
       <div class="card-body" style="padding:0">
         <table class="mapping-table">
-          <thead><tr><th>Knowbe4 Billing Type</th><th>AFAS artikel (Itemcode)</th></tr></thead>
+          <thead><tr><th>Product (importbestand)</th><th>AFAS abonnementsartikel</th></tr></thead>
           <tbody>
             ${uniqueTypes.map(type => `
             <tr>
               <td><strong>${type}</strong></td>
               <td>
-                <select id="typemap_${btoa(type).replace(/=/g,'')}">
+                <input type="text" placeholder="Zoek op itemcode of naam..." oninput="filterItemDropdown(this, 'typemap_${btoa(type).replace(/=/g,'')}')" style="width:100%;border:1px solid var(--ts-border);border-radius:5px 5px 0 0;padding:5px 8px;font-size:12px;border-bottom:none;background:var(--ts-bg)" />
+              <select id="typemap_${btoa(type).replace(/=/g,'')}" size="5" style="width:100%;border-radius:0 0 5px 5px">
                   <option value="">— Selecteer AFAS artikel —</option>
-                  ${afasItems.filter(i => !i.Geblokkeerd).map(i => `<option value="${i.Itemcode}" ${itemMappings[type]===i.Itemcode?'selected':''}>${i.Omschrijving} (${i.Itemcode})</option>`).join('')}
+                  ${afasItems.filter(i => !i.Geblokkeerd && (i.BasiseenheidCode === 'M1' || i.BasiseenheidCode === 'J1' || i.BasiseenheidCode === 'Q1' || i.ArtikelSoort === 'Abonnement' || (i.Itemcode && i.Itemcode.match(/^(TS|KB|SDV|AW|SEN|THW|ESE|ADL|AUG)/i)))).map(i => `<option value="${i.Itemcode}" ${itemMappings[type]===i.Itemcode?'selected':''}>${i.Omschrijving} (${i.Itemcode})</option>`).join('')}
                 </select>
               </td>
             </tr>`).join('')}
@@ -761,6 +764,15 @@ function renderStep2(c) {
       <button class="btn btn-secondary" onclick="syncStep=1;renderSyncStep()">← Terug</button>
       <button class="btn btn-primary" onclick="saveMappingsAndPreview()">Opslaan & Preview →</button>
     </div>`;
+}
+
+function filterItemDropdown(input, selectId) {
+  const q = input.value.toLowerCase();
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  Array.from(sel.options).forEach(opt => {
+    opt.style.display = !q || opt.text.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q) ? '' : 'none';
+  });
 }
 
 async function saveMappingsAndPreview() {
@@ -821,7 +833,7 @@ async function saveMappingsAndPreview() {
     const existing = afasRegels.find(r => r.OrganisatieId === relId && r.Itemcode === itemcode);
     if (!existing) {
       diffResult.push({ ...row, relId, itemcode, status: 'new', afasRegel: null });
-    } else if (Math.abs(existing.Aantal - row.seats) > 0.01) {
+    } else if (Math.abs(existing.Aantal - row.seats) > 0.01 || (row.endDate && row.endDate !== '') || (row.discount && Math.abs((existing.Korting||0) - row.discount) > 0.01)) {
       diffResult.push({ ...row, relId, itemcode, status: 'changed', afasRegel: existing, oldSeats: existing.Aantal });
     } else {
       diffResult.push({ ...row, relId, itemcode, status: 'ok', afasRegel: existing });
@@ -847,7 +859,7 @@ function renderStep3(c) {
       <div class="card-header"><h2>Sync preview</h2></div>
       <div class="card-body" style="padding:0">
         <table class="tbl">
-          <thead><tr><th>Organisatie</th><th>Billing Type</th><th>Seats huidig</th><th>Seats nieuw</th><th>Status</th></tr></thead>
+          <thead><tr><th>Customer</th><th>Product</th><th>Quantity huidig</th><th>Quantity nieuw</th><th>Einddatum</th><th>Korting %</th><th>Status</th></tr></thead>
           <tbody>
             ${diffResult.map(r => `
             <tr class="diff-${r.status}">
@@ -855,6 +867,8 @@ function renderStep3(c) {
               <td>${r.billingType}</td>
               <td>${r.afasRegel ? r.afasRegel.Aantal : '—'}</td>
               <td>${r.seats}</td>
+              <td>${r.endDate || '—'}</td>
+              <td>${r.discount ? r.discount + '%' : '—'}</td>
               <td><span class="diff-badge ${r.status}">${
                 r.status === 'new' ? '+ Nieuw' :
                 r.status === 'changed' ? '~ Gewijzigd' :
@@ -902,14 +916,18 @@ async function startSync() {
     try {
       if (row.status === 'changed') {
         // Update bestaande regel via UpdateConnector
+        const fields = { "QuUn": row.seats };
+        if (row.endDate) {
+          fields["EdDt"] = new Date(row.endDate).toISOString().split('T')[0];
+          fields["RsEn"] = "03";
+        }
+        if (row.discount) fields["Disc"] = row.discount;
         const body = {
           "KnFbSubscriptionLines": {
             "Element": {
               "@AbNr": row.afasRegel.Nummer_abonnement,
               "@RgNr": row.afasRegel.Regelnummer,
-              "Fields": {
-                "QuUn": row.seats
-              }
+              "Fields": fields
             }
           }
         };
