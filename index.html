@@ -578,13 +578,38 @@ function afasHeaders() {
   return { 'Authorization': `AfasToken ${b64}`, 'Content-Type': 'application/json' };
 }
 
-async function afasGet(connector, filters) {
-  let url = `${AFAS_BASE}/connectors/${connector}?skip=0&take=1000`;
-  if (filters) url += `&filterfieldids=${filters.field}&filtervalues=${filters.value}&operatortypes=1`;
+async function afasGet(connector) {
+  const url = `${AFAS_BASE}/connectors/${connector}?skip=0&take=10000`;
   const r = await fetch(url, { headers: afasHeaders() });
   if (!r.ok) throw new Error(`AFAS ${connector}: ${r.status}`);
   const d = await r.json();
   return d.rows || [];
+}
+
+async function afasGetFiltered(connector, fieldId, value) {
+  const url = `${AFAS_BASE}/connectors/${connector}?skip=0&take=10000&filterfieldids=${fieldId}&filtervalues=${encodeURIComponent(value)}&operatortypes=1`;
+  const r = await fetch(url, { headers: afasHeaders() });
+  if (!r.ok) throw new Error(`AFAS ${connector} filter: ${r.status}`);
+  const d = await r.json();
+  return d.rows || [];
+}
+
+async function fetchRegelsByLineIds(lineIds) {
+  // Fetch in batches of 10 using OR filter
+  const results = [];
+  const batchSize = 50;
+  for (let i = 0; i < lineIds.length; i += batchSize) {
+    const batch = lineIds.slice(i, i + batchSize);
+    const values = batch.join(';');
+    const ops = batch.map(() => '1').join(';');
+    const url = `${AFAS_BASE}/connectors/PowerP_Abonnementregels?skip=0&take=500&filterfieldids=Regelnummer&filtervalues=${values}&operatortypes=${ops}`;
+    const r = await fetch(url, { headers: afasHeaders() });
+    if (r.ok) {
+      const d = await r.json();
+      results.push(...(d.rows || []));
+    }
+  }
+  return results;
 }
 
 function renderSync() {
@@ -678,7 +703,7 @@ async function handleFileUpload(input) {
       startDate: row['Start date'] || row['Start Date'] || '',
       endDate: row['End date'] || row['End Date'] || '',
       discount: parseFloat(row['Discount %'] || row['Discount'] || 0) || 0,
-      lineId: row['Subscription Line ID'] || row['Regelnummer'] || '',
+      lineId: String(row['Subscription Line ID'] || row['Regelnummer'] || '').replace(/[.,]/g,'').replace(/\.0$/,''),
       raw: row
     })).filter(r => r.org && r.billingType && r.seats > 0);
   }
@@ -697,7 +722,7 @@ async function goStep2() {
 
   try {
     if (allHaveLineId) {
-      // Only need abonnementregels — no need to load relaties/items
+      // Fetch all abonnementregels
       afasRegels = await afasGet('PowerP_Abonnementregels');
       await buildDiffFromLineIds();
       syncStep = 3;
@@ -725,7 +750,7 @@ async function goStep2() {
 async function buildDiffFromLineIds() {
   diffResult = [];
   for (const row of excelRows) {
-    const existing = afasRegels.find(r => String(r.Regelnummer) === String(row.lineId));
+    const existing = afasRegels.find(r => String(r.Regelnummer).replace(/[.,]/g,'') === String(row.lineId).replace(/[.,]/g,''));
     if (!existing) {
       diffResult.push({ ...row, status: 'no_match', afasRegel: null });
     } else if (
@@ -874,6 +899,7 @@ async function saveMappingsAndPreview() {
   // Fetch current AFAS abonnementregels for mapped relaties
   try {
     const relIds = Object.values(orgMappings);
+    // Fetch all abonnementregels
     afasRegels = await afasGet('PowerP_Abonnementregels');
     afasRegels = afasRegels.filter(r => relIds.includes(r.OrganisatieId));
   } catch(e) { showToast('AFAS fout bij ophalen regels: ' + e.message, 'error'); return; }
@@ -890,7 +916,7 @@ async function saveMappingsAndPreview() {
     // Match on lineId directly if provided, otherwise match on relId + itemcode
     let existing;
     if (row.lineId) {
-      existing = afasRegels.find(r => String(r.Regelnummer) === String(row.lineId));
+      existing = afasRegels.find(r => String(r.Regelnummer).replace(/[.,]/g,'') === String(row.lineId).replace(/[.,]/g,''));
     } else {
       existing = afasRegels.find(r => r.OrganisatieId === relId && r.Itemcode === itemcode);
     }
