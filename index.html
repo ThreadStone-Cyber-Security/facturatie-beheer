@@ -994,10 +994,16 @@ function isRegelActief(r) {
   if (!r.Einddatum) return true;
   const eind = r.Einddatum.substring(0,10);
   const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
+  const facVanaf = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
+
+  // Niet actief als factureren_vanaf >= einddatum (nooit gefactureerd, direct beëindigd)
+  if (facVanaf && eind && facVanaf >= eind) return false;
+
   // Actief als einddatum in de toekomst ligt (na vandaag)
   const vandaag = new Date().toISOString().split('T')[0];
   if (eind > vandaag) return true;
-  // Of als einddatum na gefactureerd_tm (nog niet volledig gefactureerd)
+
+  // Actief als einddatum na gefactureerd_tm (nog niet volledig gefactureerd)
   if (!gefact) return true;
   return eind > gefact;
 }
@@ -1642,16 +1648,17 @@ async function laadKortingAnalyse() {
     });
 
     kortingAnalyse = Object.values(aboMap).map(abo => {
-      const totaalWaarde = abo.regels.reduce((s, r) => s + (parseFloat(r.Waarde_abonnement)||0), 0);
+      const actieveHoofdRegels = abo.regels.filter(isRegelActief);
+      const totaalWaarde = actieveHoofdRegels.reduce((s, r) => s + (parseFloat(r.Waarde_abonnement)||0), 0);
       const verwachteKorting = totaalWaarde * 0.5;
       const heeftKorting = abo.kortingRegels.length > 0;
       const kortingWaarde = abo.kortingRegels.reduce((s,r) => s + (parseFloat(r.Waarde_abonnement)||0), 0);
       const afwijking = heeftKorting ? Math.abs(Math.abs(kortingWaarde) - verwachteKorting) > 0.01 : false;
-      const actief = abo.regels.some(r => !r.Einddatum);
+      const actief = actieveHoofdRegels.length > 0;
       let status;
       if (!actief && heeftKorting) {
         // Check if kortingsregel already has matching einddatum
-        const kortingEindOk = abo.kortingRegels.some(kr => isKortingsregelOk(kr, abo.regels));
+        const kortingEindOk = abo.kortingRegels.some(kr => isKortingsregelOk(kr, actieveHoofdRegels.length > 0 ? actieveHoofdRegels : abo.regels));
         status = kortingEindOk ? 'ok' : 'beeindigen';
       } else if (!heeftKorting && actief) status = 'ontbreekt';
       else if (afwijking && actief) status = 'afwijking';
