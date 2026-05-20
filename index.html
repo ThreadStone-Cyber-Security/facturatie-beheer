@@ -1896,45 +1896,71 @@ async function beeindigenKortingsregel(aboNr, silent = false) {
   const abo = kortingAnalyse.find(a => a.aboNr === aboNr);
   if (!abo || !abo.kortingRegels[0]) return;
 
-  // Beëindig elke KORT-TO-ABB regel op gefactureerd_tm datum (of vandaag als leeg)
   let errors = 0;
   for (const regel of abo.kortingRegels) {
-    const eindDatum = regel.Gefactureerd_tm
-      ? regel.Gefactureerd_tm.substring(0,10)
-      : new Date().toISOString().split('T')[0];
+    let verwerkt = false;
 
-    const body = {
-      "FbSubscription": {
-        "Element": {
-          "Fields": { "SuNr": aboNr },
-          "Objects": {
-            "FbSubscriptionLines": {
-              "Element": {
-                "Fields": { "Id": parseInt(regel.Regelnummer), "DaEn": eindDatum, "VaRs": "04" }
+    // Stap 1: probeer te verwijderen (DELETE) — lukt alleen als nog niet gefactureerd
+    try {
+      // AFAS DELETE: verwijder abonnementsregel via padstructuur
+      const rDel = await fetch(`${AFAS_BASE}/connectors/FbSubscription/FbSubscription/@SuNr/${aboNr}/FbSubscriptionLines/@Id/${regel.Regelnummer}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `AfasToken ${btoa(afasToken)}`, 'Content-Type': 'application/json' }
+      });
+      if (rDel.ok || rDel.status === 204) {
+        verwerkt = true;
+      }
+    } catch(e) { /* DELETE mislukt, probeer beëindigen */ }
+
+    // Stap 2: als DELETE niet lukte, beëindig via einddatum
+    if (!verwerkt) {
+      const eindDatum = regel.Gefactureerd_tm
+        ? regel.Gefactureerd_tm.substring(0,10)
+        : new Date().toISOString().split('T')[0];
+
+      const body = {
+        "FbSubscription": {
+          "Element": {
+            "Fields": { "SuNr": aboNr },
+            "Objects": {
+              "FbSubscriptionLines": {
+                "Element": {
+                  "Fields": { "Id": parseInt(regel.Regelnummer), "DaEn": eindDatum, "VaRs": "04" }
+                }
               }
             }
           }
         }
-      }
-    };
-    try {
-      const r = await fetch(`${AFAS_BASE}/connectors/FbSubscription`, {
-        method: 'PUT',
-        headers: { 'Authorization': `AfasToken ${btoa(afasToken)}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (!r.ok && r.status !== 204) errors++;
-    } catch(e) { errors++; }
-  }
-  if (errors === 0) {
-    abo.heeftKorting = false;
-    abo.kortingRegels = [];
-    if (!silent) {
-      renderKortingResultaat(document.getElementById('mainContent'));
-      showToast(`KORT-TO-ABB regel(s) abo ${aboNr} beëindigd`, 'success');
+      };
+      try {
+        const rPut = await fetch(`${AFAS_BASE}/connectors/FbSubscription`, {
+          method: 'PUT',
+          headers: { 'Authorization': `AfasToken ${btoa(afasToken)}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (rPut.ok || rPut.status === 204) {
+          verwerkt = true;
+        } else {
+          errors++;
+          if (!silent) {
+            const err = await rPut.text();
+            console.error(`Abo ${aboNr} regel ${regel.Regelnummer}:`, err);
+          }
+        }
+      } catch(e) { errors++; }
     }
-  } else {
-    if (!silent) showToast(`Fout bij beëindigen abo ${aboNr}`, 'error');
+  }
+
+  // Update lokale staat ongeacht errors — verwijder uit kortingRegels
+  abo.heeftKorting = false;
+  abo.kortingRegels = [];
+  // Update in alleRegels ook
+  const idx = alleRegels.findIndex(r => r.Nummer_abonnement === aboNr && r.Itemcode === 'KORT-TO-ABB');
+  if (idx >= 0) alleRegels.splice(idx, 1);
+
+  if (!silent) {
+    renderKortingResultaat(document.getElementById('mainContent'));
+    showToast(`KORT-TO-ABB abo ${aboNr} ${errors === 0 ? 'verwijderd/beëindigd' : 'verwerkt ('+errors+' fouten)'}`, 'success');
   }
 }
 
