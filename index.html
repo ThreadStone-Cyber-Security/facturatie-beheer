@@ -194,6 +194,10 @@
         Dashboard
       </div>
 
+      <div class="nav-item" onclick="showTab('abonnementen')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+        Abonnementen
+      </div>
       <div class="nav-item" onclick="showTab('regels')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
         Abonnementsregels
@@ -313,14 +317,15 @@ async function loadProducenten() {
 // ── Tab routing ──────────────────────────────────────────────────────────────
 function showTab(tab) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[['dashboard','regels','korting','sync'].indexOf(tab)]?.classList.add('active');
-  const titles = { dashboard: 'Dashboard', regels: 'Abonnementsregels', korting: 'Korting Techone', sync: 'AFAS Sync' };
+  document.querySelectorAll('.nav-item')[['dashboard','abonnementen','regels','korting','sync'].indexOf(tab)]?.classList.add('active');
+  const titles = { dashboard: 'Dashboard', abonnementen: 'Abonnementen', regels: 'Abonnementsregels', korting: 'Korting Techone', sync: 'AFAS Sync' };
   document.getElementById('pageTitle').textContent = titles[tab];
   document.getElementById('topActions').innerHTML = '';
   if (tab === 'dashboard') renderDashboard();
   else if (tab === 'mapping') renderMapping();
   else if (tab === 'validatie') renderValidatie();
   else if (tab === 'producten') renderProducten();
+  else if (tab === 'abonnementen') renderAbonnementen();
   else if (tab === 'regels') renderRegels();
   else if (tab === 'korting') renderKorting();
   else if (tab === 'sync') renderSync();
@@ -1199,8 +1204,85 @@ function renderStep4(c) {
           <button class="btn btn-primary" id="startSyncBtn" onclick="startSync()">▶ Start sync</button>
         </div>
       </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-header" style="cursor:pointer" onclick="toggleRegelDetail()">
+        <h2>📋 Regeldetail alle TechOne MSP abonnementen</h2>
+        <span id="regelDetailToggle" style="font-size:12px;color:var(--ts-muted)">▼ Uitklappen om te controleren</span>
+      </div>
+      <div id="regelDetailContent" style="display:none">
+        <div class="tbl-wrapper">
+          <table class="regels-tbl">
+            <thead><tr>
+              <th>Abo nr</th><th>Klant</th><th>Regel nr</th><th>Product</th><th>Cyclus</th>
+              <th>Aantal</th><th>Prijs</th><th>Korting %</th><th>Regelwaarde</th><th>Status</th>
+            </tr></thead>
+            <tbody id="regelDetailTbody">
+              ${renderKortingDetailRows()}
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:12px 18px;border-top:1px solid var(--ts-border);display:flex;gap:20px;font-size:13px" id="regelDetailSummary">
+        </div>
+      </div>
     </div>`;
 }
+
+function toggleRegelDetail() {
+  const content = document.getElementById('regelDetailContent');
+  const toggle = document.getElementById('regelDetailToggle');
+  if (content.style.display === 'none') {
+    content.style.display = '';
+    toggle.textContent = '▲ Inklappen';
+  } else {
+    content.style.display = 'none';
+    toggle.textContent = '▼ Uitklappen om te controleren';
+  }
+}
+
+function heeft50Pct(r) {
+  if (!r.Afwijkende_prijs || parseFloat(r.Afwijkende_prijs) === 0) return parseFloat(r.Korting||0) === 50;
+  return Math.abs(parseFloat(r.Korting||0) / parseFloat(r.Afwijkende_prijs) * 100 - 50) < 0.5;
+}
+
+function renderKortingDetailRows() {
+  const allRegels = kortingAnalyse.flatMap(a =>
+    a.regels.filter(r => isRegelActief(r)).map(r => ({ ...r, _naam: a.naam, _aboNr: a.aboNr }))
+  );
+  const metKort = allRegels.filter(r => r.Itemcode === 'KORT-TO-ABB').length;
+  const met50 = allRegels.filter(r => r.Itemcode !== 'KORT-TO-ABB' && heeft50Pct(r)).length;
+  const zonder50 = allRegels.filter(r => r.Itemcode !== 'KORT-TO-ABB' && !heeft50Pct(r)).length;
+
+  const summary = document.getElementById('regelDetailSummary');
+  if (summary) summary.innerHTML = \`
+    <span style="color:var(--ts-success)">✓ Met 50%: \${met50} regels</span>
+    <span style="color:var(--ts-warning)">✕ Zonder 50%: \${zonder50} regels</span>
+    <span style="color:var(--ts-danger)">⚠ KORT-TO-ABB actief: \${metKort} regels</span>\`;
+
+  return allRegels.map(r => {
+    const isKort = r.Itemcode === 'KORT-TO-ABB';
+    const h50 = !isKort && heeft50Pct(r);
+    const kortPct = (r.Korting && r.Afwijkende_prijs && parseFloat(r.Afwijkende_prijs) !== 0)
+      ? Math.abs(parseFloat(r.Korting) / parseFloat(r.Afwijkende_prijs) * 100).toFixed(2) + '%'
+      : '—';
+    const bg = isKort ? 'var(--ts-danger-bg)' : !h50 ? 'var(--ts-warning-bg)' : '';
+    const statusLabel = isKort ? '⚠ KORT-TO-ABB' : h50 ? '✓ 50% OK' : '✕ Geen 50%';
+    const statusColor = isKort ? 'var(--ts-danger)' : h50 ? 'var(--ts-success)' : 'var(--ts-warning)';
+    return \`<tr style="background:\${bg}">
+      <td><span class="tag">\${r._aboNr}</span></td>
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis" title="\${r._naam}">\${r._naam}</td>
+      <td style="font-size:11px;color:var(--ts-muted)">\${r.Regelnummer}</td>
+      <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">\${r.Itemcode||'—'}</code></td>
+      <td style="font-size:11px">\${r.Basiseenheid||'—'}</td>
+      <td>\${r.Aantal||0}</td>
+      <td>\${r.Afwijkende_prijs ? '€'+parseFloat(r.Afwijkende_prijs).toFixed(2) : '—'}</td>
+      <td style="font-weight:500">\${kortPct}</td>
+      <td>\${r.Waarde_abonnement ? '€'+parseFloat(r.Waarde_abonnement).toFixed(2) : '—'}</td>
+      <td><span style="font-size:11px;font-weight:600;color:\${statusColor}">\${statusLabel}</span></td>
+    </tr>\`;
+  }).join('');
+}
+
 
 async function startSync() {
   document.getElementById('startSyncBtn').disabled = true;
@@ -1352,7 +1434,7 @@ function applyRegelFilters() {
     if (regelFilters.klant && !r.Naam?.toLowerCase().includes(regelFilters.klant.toLowerCase())) return false;
     if (regelFilters.product && !r.Itemcode?.toLowerCase().includes(regelFilters.product.toLowerCase()) && !r.Omschrijving?.toLowerCase().includes(regelFilters.product.toLowerCase())) return false;
     if (regelFilters.type && r.Type_abonnement !== regelFilters.type) return false;
-    if (regelFilters.abonNr && !String(r.Nummer_abonnement).includes(regelFilters.abonNr)) return false;
+    if (regelFilters.abonNr && String(r.Nummer_abonnement) !== regelFilters.abonNr) return false;
     if (regelFilters.regelNr && !String(r.Regelnummer).includes(regelFilters.regelNr)) return false;
     if (regelFilters.omschrijving && !r.Regel_Omschrijving?.toLowerCase().includes(regelFilters.omschrijving.toLowerCase())) return false;
     if (regelFilters.status === 'actief' && !isRegelActief(r)) return false;
@@ -1400,8 +1482,11 @@ function renderRegelRows() {
     const isEditing = editingRegel === r.Regelnummer;
     const fmtDate = d => d ? d.substring(0,10) : '—';
     const fmtEur  = v => v ? '€'+parseFloat(v).toFixed(2) : '—';
-    const prijsInclKorting = r.Afwijkende_prijs && r.Korting
-      ? '€'+(parseFloat(r.Afwijkende_prijs) * (1 - parseFloat(r.Korting)/100)).toFixed(2)
+    const kortingPct = (r.Korting && r.Afwijkende_prijs && parseFloat(r.Afwijkende_prijs) !== 0)
+      ? Math.abs(parseFloat(r.Korting) / parseFloat(r.Afwijkende_prijs) * 100)
+      : 0;
+    const prijsInclKorting = r.Afwijkende_prijs
+      ? '€'+(parseFloat(r.Afwijkende_prijs) * (1 - kortingPct/100)).toFixed(2)
       : fmtEur(r.Afwijkende_prijs);
     return `<tr class="${isEditing ? 'editing' : ''}" data-id="${r.Regelnummer}">
       <td><input type="checkbox" class="regel-cb" data-id="${r.Regelnummer}" data-abo="${r.Nummer_abonnement}" data-gefact="${r.Gefactureerd_tm||''}" onchange="updateSelectCount()" /></td>
@@ -1423,8 +1508,12 @@ function renderRegelRows() {
         ? `<input class="inline-input" id="edit_prijs_${r.Regelnummer}" value="${r.Afwijkende_prijs||''}" type="number" step="0.01" style="width:90px" />`
         : fmtEur(r.Afwijkende_prijs)}</td>
       <td>${isEditing
-        ? `<input class="inline-input" id="edit_korting_${r.Regelnummer}" value="${r.Korting||0}" type="number" step="0.01" style="width:70px" />`
-        : (r.Korting ? r.Korting+'%' : '—')}</td>
+        ? `<input class="inline-input" id="edit_korting_${r.Regelnummer}" value="${r.Korting && r.Afwijkende_prijs ? Math.abs(parseFloat(r.Korting)/parseFloat(r.Afwijkende_prijs)*100).toFixed(2) : 0}" type="number" step="0.01" style="width:70px" />`
+        : (() => {
+          if (!r.Korting || !r.Afwijkende_prijs || parseFloat(r.Afwijkende_prijs) === 0) return '—';
+          const pct = Math.abs(parseFloat(r.Korting) / parseFloat(r.Afwijkende_prijs) * 100);
+          return pct.toFixed(2) + '%';
+        })()}</td>
       <td style="font-size:11px">${prijsInclKorting}</td>
       <td style="font-weight:500">${fmtEur(r.Waarde_abonnement)}</td>
       <td style="min-width:160px">${isEditing
@@ -1677,6 +1766,7 @@ function renderKortingResultaat(c) {
   const metKortingsregel = kortingAnalyse.filter(a => a.heeftKorting);
   const zonderKortingsregel = kortingAnalyse.filter(a => !a.heeftKorting);
   const metKorting50 = kortingAnalyse.filter(a => a.alleRegelsMet50);
+  const zonderKorting50 = kortingAnalyse.filter(a => !a.alleRegelsMet50 && a.actief);
   const actieAnodig = kortingAnalyse.filter(a => a.heeftKorting || !a.alleRegelsMet50);
 
   c.innerHTML = `
@@ -1968,6 +2058,289 @@ async function bulkKortingToepassen() {
   applyRegelFilters();
   document.getElementById('regelsTbody').innerHTML = renderRegelRows();
   updateSelectCount();
+  showToast(`50% korting toegepast op ${ok} regel(s)${errors>0?' ('+errors+' fouten)':''}`, ok>0?'success':'error');
+}
+
+// ── Abonnementen overzicht ───────────────────────────────────────────────────
+let aboData = [];
+let aboGefilterd = [];
+let aboSortField = 'AbonnementsNr';
+let aboSortDir = 1;
+let aboFilters = { klant: '', type: '', cyclus: '', aboNr: '' };
+let afasTokenAbonnementen = '';
+
+async function renderAbonnementen() {
+  const c = document.getElementById('mainContent');
+  document.getElementById('topActions').innerHTML = `
+    <input type="password" id="afasTokenAboInput" placeholder="AFAS token" value="${afasTokenAbonnementen||afasTokenRegels||afasToken}"
+      style="font-size:12px;padding:5px 10px;border:1px solid var(--ts-border);border-radius:var(--radius);width:220px"
+      oninput="afasTokenAbonnementen=this.value;afasToken=this.value;afasTokenRegels=this.value" />
+    <button class="btn btn-primary btn-sm" onclick="laadAbonnementen()">↻ Laden</button>`;
+
+  if (aboData.length === 0) {
+    c.innerHTML = `<div class="empty-state">Vul het AFAS token in en klik op Laden.</div>`;
+    return;
+  }
+  renderAboTable(c);
+}
+
+async function laadAbonnementen() {
+  afasTokenAbonnementen = document.getElementById('afasTokenAboInput')?.value || afasToken;
+  afasToken = afasTokenAbonnementen;
+  afasTokenRegels = afasTokenAbonnementen;
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Abonnementen laden...</div>';
+
+  try {
+    // Load abonnementen
+    const aboRaw = await afasGet('PowerP_Abonnementen');
+
+    // Use cached regels or load them
+    if (alleRegels.length === 0) {
+      c.innerHTML = '<div class="loader"><div class="spinner"></div> Abonnementsregels laden...</div>';
+      alleRegels = await afasGet('PowerP_Abonnementregels');
+    }
+
+    // Group regels per abonnement
+    const regelPerAbo = {};
+    alleRegels.forEach(r => {
+      const nr = r.Nummer_abonnement;
+      if (!regelPerAbo[nr]) regelPerAbo[nr] = [];
+      regelPerAbo[nr].push(r);
+    });
+
+    // Build aboData
+    aboData = aboRaw.map(a => {
+      const regels = regelPerAbo[a.AbonnementsNr] || [];
+      const actief = regels.filter(r => isRegelActief(r) && r.Itemcode !== 'KORT-TO-ABB');
+      const inactief = regels.filter(r => !isRegelActief(r) && r.Itemcode !== 'KORT-TO-ABB');
+      const kortingRegels = regels.filter(r => r.Itemcode === 'KORT-TO-ABB');
+      const totaalWaarde = regels.filter(r => r.Itemcode !== 'KORT-TO-ABB').reduce((s,r) => s+(parseFloat(r.Waarde_abonnement)||0),0);
+      const totaalKorting = kortingRegels.reduce((s,r) => s+(parseFloat(r.Waarde_abonnement)||0),0);
+      return {
+        ...a,
+        actieveRegels: actief.length,
+        inactieveRegels: inactief.length,
+        totaalWaarde,
+        totaalKorting,
+        kortingRegels
+      };
+    });
+
+    aboGefilterd = [...aboData];
+    renderAboTable(c);
+    showToast(`${aboData.length} abonnementen geladen`, 'success');
+  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+}
+
+function renderAboTable(c) {
+  applyAboFilters();
+  const uniqueTypes = [...new Set(aboData.map(a => a.Type_abonnement).filter(Boolean))].sort();
+  const uniqueCyclus = [...new Set(aboData.map(a => a.Cyclus_facturering).filter(Boolean))].sort();
+
+  c.innerHTML = `
+    <div class="filter-bar">
+      <input placeholder="🔍 Klant" value="${aboFilters.klant}" oninput="aboFilters.klant=this.value;applyAboFilters();updateAboTbody()" style="flex:1;min-width:140px" />
+      <input placeholder="Abo nr" value="${aboFilters.aboNr}" oninput="aboFilters.aboNr=this.value;applyAboFilters();updateAboTbody()" style="width:100px" />
+      <select onchange="aboFilters.type=this.value;applyAboFilters();updateAboTbody()">
+        <option value="">Alle types</option>
+        ${uniqueTypes.map(t => `<option value="${t}" ${aboFilters.type===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+      <select onchange="aboFilters.cyclus=this.value;applyAboFilters();updateAboTbody()">
+        <option value="">Alle cycli</option>
+        ${uniqueCyclus.map(t => `<option value="${t}" ${aboFilters.cyclus===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+      <span class="regels-count">${aboGefilterd.length} / ${aboData.length} abonnementen</span>
+    </div>
+    <div class="tbl-wrapper">
+      <table class="regels-tbl">
+        <thead>
+          <tr>
+            ${['AbonnementsNr','Type_abonnement','VerkoopRel_naam','Cyclus_facturering','Begindatum_abonnement','Begindatum_factuurcyclus','actieveRegels','totaalWaarde','totaalKorting'].map(f => `
+            <th onclick="sortAbo('${f}')" class="${aboSortField===f?'sorted':''}">
+              ${f==='AbonnementsNr'?'Abo nr':
+                f==='Type_abonnement'?'Type':
+                f==='VerkoopRel_naam'?'Klant':
+                f==='Cyclus_facturering'?'Factuurcyclus':
+                f==='Begindatum_abonnement'?'Startdatum':
+                f==='Begindatum_factuurcyclus'?'Volgende factuurdatum':
+                f==='actieveRegels'?'Actief / inactief':
+                f==='totaalWaarde'?'Totale regelwaarde':
+                f==='totaalKorting'?'Totaal korting':f}
+              <span class="sort-icon">${aboSortField===f?(aboSortDir===1?'↑':'↓'):'↕'}</span>
+            </th>`).join('')}
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="aboTbody">
+          ${renderAboRows()}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function applyAboFilters() {
+  aboGefilterd = aboData.filter(a => {
+    if (aboFilters.klant && !a.VerkoopRel_naam?.toLowerCase().includes(aboFilters.klant.toLowerCase())) return false;
+    if (aboFilters.aboNr && String(a.AbonnementsNr) !== aboFilters.aboNr) return false;
+    if (aboFilters.type && a.Type_abonnement !== aboFilters.type) return false;
+    if (aboFilters.cyclus && a.Cyclus_facturering !== aboFilters.cyclus) return false;
+    return true;
+  });
+  aboGefilterd.sort((a, b) => {
+    const av = a[aboSortField] ?? '';
+    const bv = b[aboSortField] ?? '';
+    if (typeof av === 'number') return (av - bv) * aboSortDir;
+    return String(av).localeCompare(String(bv)) * aboSortDir;
+  });
+}
+
+function sortAbo(field) {
+  if (aboSortField === field) aboSortDir *= -1;
+  else { aboSortField = field; aboSortDir = 1; }
+  applyAboFilters();
+  document.getElementById('aboTbody').innerHTML = renderAboRows();
+  document.querySelectorAll('.regels-tbl th').forEach((th, i) => {
+    const fields = ['AbonnementsNr','Type_abonnement','VerkoopRel_naam','Cyclus_facturering','Begindatum_abonnement','Begindatum_factuurcyclus','actieveRegels','totaalWaarde','totaalKorting'];
+    const f = fields[i];
+    if (!f) return;
+    th.className = aboSortField === f ? 'sorted' : '';
+    const icon = th.querySelector('.sort-icon');
+    if (icon) icon.textContent = aboSortField===f?(aboSortDir===1?'↑':'↓'):'↕';
+  });
+}
+
+function updateAboTbody() {
+  document.getElementById('aboTbody').innerHTML = renderAboRows();
+}
+
+function renderAboRows() {
+  if (aboGefilterd.length === 0) return `<tr><td colspan="10" class="empty-state">Geen abonnementen gevonden</td></tr>`;
+  const fmtDate = d => d ? d.substring(0,10) : '—';
+  const fmtEur = v => v !== 0 ? (v < 0 ? '-€'+Math.abs(v).toFixed(2) : '€'+v.toFixed(2)) : '—';
+
+  return aboGefilterd.slice(0,500).map(a => `
+    <tr>
+      <td><span class="tag" style="cursor:pointer" onclick="filterRegelsOpAbo(${a.AbonnementsNr})">${a.AbonnementsNr}</span></td>
+      <td><span class="badge badge-csv" style="font-size:10px">${a.Type_abonnement||'—'}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${a.VerkoopRel_naam||''}">${a.VerkoopRel_naam||'—'}</td>
+      <td style="font-size:12px">${a.Cyclus_facturering||'—'}</td>
+      <td style="font-size:11px">${fmtDate(a.Begindatum_abonnement)}</td>
+      <td style="font-size:11px">${fmtDate(a.Begindatum_factuurcyclus)}</td>
+      <td>
+        <span style="color:var(--ts-success);font-weight:500">${a.actieveRegels}</span>
+        <span style="color:var(--ts-muted);font-size:11px"> / ${a.inactieveRegels} inactief</span>
+      </td>
+      <td style="font-weight:500">${fmtEur(a.totaalWaarde)}</td>
+      <td style="color:${a.totaalKorting<0?'var(--ts-success)':'var(--ts-muted)'}">${fmtEur(a.totaalKorting)}</td>
+      <td><button class="edit-btn" onclick="filterRegelsOpAbo(${a.AbonnementsNr})" title="Bekijk regels">→ Regels</button></td>
+    </tr>`).join('');
+}
+
+function filterRegelsOpAbo(aboNr) {
+  // Switch to regels tab and filter on this abo number
+  regelFilters.abonNr = String(aboNr);
+  regelFilters.klant = '';
+  regelFilters.product = '';
+  regelFilters.type = '';
+  regelFilters.regelNr = '';
+  regelFilters.omschrijving = '';
+  regelFilters.status = 'alle';
+  showTab('regels');
+}
+
+// ── Korting Techone bulk acties ──────────────────────────────────────────────
+async function bulkBeeindigenAlleKort() {
+  const metKort = kortingAnalyse.filter(a => a.heeftKorting);
+  if (!metKort.length) { showToast('Geen KORT-TO-ABB regels gevonden', 'error'); return; }
+  if (!confirm(`KORT-TO-ABB beëindigen voor ${metKort.length} abonnement(en)? Einddatum = gefactureerd t/m datum van de kortingsregel.`)) return;
+
+  const c = document.getElementById('mainContent');
+  const progressDiv = document.createElement('div');
+  progressDiv.innerHTML = '<div class="loader"><div class="spinner"></div> Bezig met beëindigen...</div>';
+  c.prepend(progressDiv);
+
+  let ok = 0; let errors = 0;
+  for (const abo of metKort) {
+    for (const regel of abo.kortingRegels) {
+      const eindDatum = regel.Gefactureerd_tm
+        ? regel.Gefactureerd_tm.substring(0,10)
+        : new Date().toISOString().split('T')[0];
+      const body = {
+        "FbSubscription": {
+          "Element": {
+            "Fields": { "SuNr": abo.aboNr },
+            "Objects": { "FbSubscriptionLines": { "Element": { "Fields": {
+              "Id": parseInt(regel.Regelnummer), "DaEn": eindDatum, "VaRs": "04"
+            }}}}
+          }
+        }
+      };
+      try {
+        const r = await fetch(`${AFAS_BASE}/connectors/FbSubscription`, {
+          method: 'PUT',
+          headers: { 'Authorization': `AfasToken ${btoa(afasToken)}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (r.ok || r.status === 204) { ok++; }
+        else { errors++; const err = await r.text(); console.error(`Abo ${abo.aboNr}:`, err); }
+      } catch(e) { errors++; }
+    }
+    // Update local state
+    abo.heeftKorting = false;
+    abo.kortingRegels = [];
+  }
+  progressDiv.remove();
+  renderKortingResultaat(c);
+  showToast(`${ok} KORT-TO-ABB regel(s) beëindigd${errors>0?' ('+errors+' fouten)':''}`, ok>0?'success':'error');
+}
+
+async function bulkKortingAlleAbos() {
+  const zonderKort = kortingAnalyse.filter(a => !a.alleRegelsMet50 && a.actief);
+  if (!zonderKort.length) { showToast('Alle abonnementen hebben al 50% korting', 'success'); return; }
+
+  const totaalRegels = zonderKort.reduce((s,a) => s + a.regels.filter(r => isRegelActief(r) && r.Itemcode !== 'KORT-TO-ABB' && parseFloat(r.Korting||0) !== 50).length, 0);
+  if (!confirm(`50% kortingspercentage toepassen op ${totaalRegels} regel(s) in ${zonderKort.length} abonnement(en)?`)) return;
+
+  const c = document.getElementById('mainContent');
+  const progressDiv = document.createElement('div');
+  progressDiv.style.cssText = 'padding:12px 0';
+  progressDiv.innerHTML = `<div class="progress-bar"><div class="progress-fill" id="kortingProgress" style="width:0%"></div></div><div style="font-size:12px;color:var(--ts-muted);text-align:center" id="kortingProgressTxt">0 / ${totaalRegels} regels</div>`;
+  c.prepend(progressDiv);
+
+  let ok = 0; let errors = 0; let done = 0;
+  for (const abo of zonderKort) {
+    const teVerwerken = abo.regels.filter(r => isRegelActief(r) && r.Itemcode !== 'KORT-TO-ABB' && parseFloat(r.Korting||0) !== 50);
+    for (const regel of teVerwerken) {
+      const body = {
+        "FbSubscription": {
+          "Element": {
+            "Fields": { "SuNr": abo.aboNr },
+            "Objects": { "FbSubscriptionLines": { "Element": { "Fields": {
+              "Id": parseInt(regel.Regelnummer), "DcPr": 50, "IsPc": true
+            }}}}
+          }
+        }
+      };
+      try {
+        const r = await fetch(`${AFAS_BASE}/connectors/FbSubscription`, {
+          method: 'PUT',
+          headers: { 'Authorization': `AfasToken ${btoa(afasToken)}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (r.ok || r.status === 204) { ok++; regel.Korting = 50; }
+        else { errors++; const err = await r.text(); console.error(`Regel ${regel.Regelnummer}:`, err); }
+      } catch(e) { errors++; }
+      done++;
+      document.getElementById('kortingProgress').style.width = `${Math.round(done/totaalRegels*100)}%`;
+      document.getElementById('kortingProgressTxt').textContent = `${done} / ${totaalRegels} regels`;
+    }
+    // Recheck alleRegelsMet50
+    const actieveHR = abo.regels.filter(r => isRegelActief(r) && r.Itemcode !== 'KORT-TO-ABB');
+    abo.alleRegelsMet50 = actieveHR.length > 0 && actieveHR.every(r => parseFloat(r.Korting||0) === 50);
+  }
+  progressDiv.remove();
+  renderKortingResultaat(c);
   showToast(`50% korting toegepast op ${ok} regel(s)${errors>0?' ('+errors+' fouten)':''}`, ok>0?'success':'error');
 }
 
