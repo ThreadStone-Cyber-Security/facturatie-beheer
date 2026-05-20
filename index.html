@@ -348,13 +348,14 @@ async function renderDashboard() {
 
   // Compute stats
   const totaalRegels = regels.length;
-  const uniekeKlanten = new Set(regels.map(r => r.OrganisatieId)).size;
-  const totaalAantal = regels.reduce((s, r) => s + (parseFloat(r.Aantal) || 0), 0);
-  const totaalWaarde = regels.reduce((s, r) => s + (parseFloat(r.Waarde_abonnement) || 0), 0);
+  const uniekeKlanten = new Set(actieveRegels.map(r => r.OrganisatieId)).size;
+  const totaalAantal = actieveRegels.reduce((s, r) => s + (parseFloat(r.Aantal) || 0), 0);
+  const actieveRegels = regels.filter(isRegelActief);
+  const totaalWaarde = actieveRegels.reduce((s, r) => s + (parseFloat(r.Waarde_abonnement) || 0), 0);
 
   // Per product totalen
   const perProduct = {};
-  regels.forEach(r => {
+  actieveRegels.forEach(r => {
     const key = r.Itemcode || '—';
     if (!perProduct[key]) perProduct[key] = { itemcode: key, omschrijving: r.Omschrijving || r.Regel_Omschrijving || key, klanten: new Set(), aantal: 0, waarde: 0 };
     perProduct[key].klanten.add(r.OrganisatieId);
@@ -395,7 +396,7 @@ async function renderDashboard() {
             ${(() => {
               const cyclusMap = {};
               const cyclusFactor = { 'M1':1, 'M3':3, 'J1':12, 'J2':24, 'J3':36, 'J5':60, 'W1':0.25, 'D7':0.23, 'I':0 };
-              regels.forEach(r => {
+              actieveRegels.forEach(r => {
                 const c = r.Basiseenheid || 'Overig';
                 if (!cyclusMap[c]) cyclusMap[c] = { regels:0, waarde:0 };
                 cyclusMap[c].regels++;
@@ -409,6 +410,58 @@ async function renderDashboard() {
             })()}
           </tbody>
         </table>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card">
+        <div class="card-header"><h2>📅 Facturatie deze maand</h2><span style="font-size:11px;color:var(--ts-muted)">Peildatum: laatste dag huidige maand</span></div>
+        <div class="card-body" style="padding:0">
+          <table class="tbl">
+            <thead><tr><th>Cyclus</th><th>Regels</th><th>Te factureren</th></tr></thead>
+            <tbody>
+              ${(() => {
+                const nu = new Date();
+                const eindeMaand = new Date(nu.getFullYear(), nu.getMonth()+1, 0);
+                const eindeMaandStr = eindeMaand.toISOString().split('T')[0];
+                const facCyclus = { 'M1':[], 'M3':[], 'J1':[], 'J2':[], 'J3':[], 'J5':[], 'W1':[], 'D7':[] };
+                actieveRegels.forEach(r => {
+                  const cyclus = r.Basiseenheid || '';
+                  if (!facCyclus[cyclus]) return;
+                  const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
+                  const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
+                  const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+                  // Moet gefactureerd worden als:
+                  // 1. gefactureerd_tm < laatste dag huidige maand
+                  // 2. geen einddatum of einddatum >= laatste dag huidige maand
+                  // 3. startdatum <= laatste dag huidige maand
+                  const moetFact = (!gefact || gefact < eindeMaandStr) &&
+                                   (!eind || eind >= eindeMaandStr) &&
+                                   (!start || start <= eindeMaandStr);
+                  if (moetFact) facCyclus[cyclus].push(r);
+                });
+                const cyclusLabels = { 'M1':'Maand','M3':'Kwartaal','J1':'Jaar','J2':'2 Jaar','J3':'3 Jaar','J5':'5 Jaar','W1':'Week','D7':'7 Dagen' };
+                return Object.entries(facCyclus)
+                  .filter(([,regels]) => regels.length > 0)
+                  .map(([c, regels]) => {
+                    const waarde = regels.reduce((s,r) => s+(parseFloat(r.Waarde_abonnement)||0), 0);
+                    return `<tr><td><span class="badge badge-csv">${cyclusLabels[c]||c}</span></td><td>${regels.length}</td><td style="font-weight:500">€${Math.round(waarde).toLocaleString('nl')}</td></tr>`;
+                  }).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--ts-muted)">Niets te factureren</td></tr>';
+              })()}
+              ${(() => {
+                const nu = new Date();
+                const eindeMaand = new Date(nu.getFullYear(), nu.getMonth()+1, 0);
+                const eindeMaandStr = eindeMaand.toISOString().split('T')[0];
+                const totaal = actieveRegels.filter(r => {
+                  const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
+                  const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
+                  const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+                  return (!gefact || gefact < eindeMaandStr) && (!eind || eind >= eindeMaandStr) && (!start || start <= eindeMaandStr);
+                }).reduce((s,r) => s+(parseFloat(r.Waarde_abonnement)||0), 0);
+                return `<tr style="border-top:2px solid var(--ts-border);font-weight:600"><td colspan="2">Totaal</td><td>€${Math.round(totaal).toLocaleString('nl')}</td></tr>`;
+              })()}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
@@ -930,7 +983,17 @@ function renderStep2(c) {
     </div>`;
 }
 
-let ignoredRows = new Set(); // set of "org|billingType" keys
+let ignoredRows = new Set();
+
+function isRegelActief(r) {
+  if (!r.Einddatum) return true;
+  // Beëindigd = einddatum is gelijk aan of voor gefactureerd_tm
+  const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+  const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
+  if (!eind) return true;
+  if (!gefact) return true;
+  return eind > gefact; // actief als einddatum na gefactureerd_tm
+} // set of "org|billingType" keys
 
 function toggleIgnore(key, btn) {
   if (ignoredRows.has(key)) {
@@ -1178,7 +1241,7 @@ let alleRegels = [];
 let gefilterdRegels = [];
 let regelsSortField = 'Regelnummer';
 let regelsSortDir = 1;
-let regelFilters = { klant: '', product: '', type: '', abonNr: '', regelNr: '' };
+let regelFilters = { klant: '', product: '', type: '', abonNr: '', regelNr: '', status: 'actief' };
 let editingRegel = null;
 let afasTokenRegels = '';
 
@@ -1226,6 +1289,11 @@ function renderRegelsTable(c) {
       <input placeholder="Abonnement nr" value="${regelFilters.abonNr}" oninput="regelFilters.abonNr=this.value;applyRegelFilters();updateRegelstbody()" style="width:120px" />
       <input placeholder="Regel nr" value="${regelFilters.regelNr}" oninput="regelFilters.regelNr=this.value;applyRegelFilters();updateRegelstbody()" style="width:100px" />
       <input placeholder="🔍 Regelomschrijving" value="${regelFilters.omschrijving||''}" oninput="regelFilters.omschrijving=this.value;applyRegelFilters();updateRegelstbody()" style="min-width:160px;flex:1" />
+      <select onchange="regelFilters.status=this.value;applyRegelFilters();updateRegelstbody()">
+        <option value="actief" ${regelFilters.status==='actief'?'selected':''}>Alleen actief</option>
+        <option value="inactief" ${regelFilters.status==='inactief'?'selected':''}>Alleen inactief</option>
+        <option value="alle" ${regelFilters.status==='alle'?'selected':''}>Alle regels</option>
+      </select>
       <span class="regels-count" id="regelsCount">${gefilterdRegels.length} / ${alleRegels.length} regels</span>
     </div>
     <div class="tbl-wrapper">
@@ -1255,6 +1323,8 @@ function applyRegelFilters() {
     if (regelFilters.abonNr && !String(r.Nummer_abonnement).includes(regelFilters.abonNr)) return false;
     if (regelFilters.regelNr && !String(r.Regelnummer).includes(regelFilters.regelNr)) return false;
     if (regelFilters.omschrijving && !r.Regel_Omschrijving?.toLowerCase().includes(regelFilters.omschrijving.toLowerCase())) return false;
+    if (regelFilters.status === 'actief' && !isRegelActief(r)) return false;
+    if (regelFilters.status === 'inactief' && isRegelActief(r)) return false;
     return true;
   });
   // Sort
@@ -1520,15 +1590,16 @@ async function laadKortingAnalyse() {
     const regels = alleRegels.length > 0 ? alleRegels : await afasGet('PowerP_Abonnementregels');
     if (alleRegels.length === 0) { alleRegels = regels; }
 
-    // Filter: only type Overig, only TechOne MSP klanten
+    // Filter: only type Overig, only TechOne MSP klanten, only active
     kortingRegels = regels.filter(r =>
       r.Type_abonnement === 'Overig' &&
       relIds.has(r.OrganisatieId) &&
-      r.Itemcode !== 'KORT-TO-ABB'
+      r.Itemcode !== 'KORT-TO-ABB' &&
+      isRegelActief(r)
     );
 
     // Existing korting regels per abonnement
-    const kortingBestaand = regels.filter(r => r.Itemcode === 'KORT-TO-ABB');
+    const kortingBestaand = regels.filter(r => r.Itemcode === 'KORT-TO-ABB' && isRegelActief(r));
     const kortingPerAbo = {};
     kortingBestaand.forEach(r => {
       if (!kortingPerAbo[r.Nummer_abonnement]) kortingPerAbo[r.Nummer_abonnement] = [];
