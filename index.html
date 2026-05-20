@@ -1254,10 +1254,10 @@ function renderKortingDetailRows() {
   const zonder50 = allRegels.filter(r => r.Itemcode !== 'KORT-TO-ABB' && !heeft50Pct(r)).length;
 
   const summary = document.getElementById('regelDetailSummary');
-  if (summary) summary.innerHTML = \`
-    <span style="color:var(--ts-success)">✓ Met 50%: \${met50} regels</span>
-    <span style="color:var(--ts-warning)">✕ Zonder 50%: \${zonder50} regels</span>
-    <span style="color:var(--ts-danger)">⚠ KORT-TO-ABB actief: \${metKort} regels</span>\`;
+  if (summary) summary.innerHTML = `
+    <span style="color:var(--ts-success)">✓ Met 50%: ${met50} regels</span>
+    <span style="color:var(--ts-warning)">✕ Zonder 50%: ${zonder50} regels</span>
+    <span style="color:var(--ts-danger)">⚠ KORT-TO-ABB actief: ${metKort} regels</span>`;
 
   return allRegels.map(r => {
     const isKort = r.Itemcode === 'KORT-TO-ABB';
@@ -1268,18 +1268,18 @@ function renderKortingDetailRows() {
     const bg = isKort ? 'var(--ts-danger-bg)' : !h50 ? 'var(--ts-warning-bg)' : '';
     const statusLabel = isKort ? '⚠ KORT-TO-ABB' : h50 ? '✓ 50% OK' : '✕ Geen 50%';
     const statusColor = isKort ? 'var(--ts-danger)' : h50 ? 'var(--ts-success)' : 'var(--ts-warning)';
-    return \`<tr style="background:\${bg}">
-      <td><span class="tag">\${r._aboNr}</span></td>
-      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis" title="\${r._naam}">\${r._naam}</td>
-      <td style="font-size:11px;color:var(--ts-muted)">\${r.Regelnummer}</td>
-      <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">\${r.Itemcode||'—'}</code></td>
-      <td style="font-size:11px">\${r.Basiseenheid||'—'}</td>
-      <td>\${r.Aantal||0}</td>
-      <td>\${r.Afwijkende_prijs ? '€'+parseFloat(r.Afwijkende_prijs).toFixed(2) : '—'}</td>
-      <td style="font-weight:500">\${kortPct}</td>
-      <td>\${r.Waarde_abonnement ? '€'+parseFloat(r.Waarde_abonnement).toFixed(2) : '—'}</td>
-      <td><span style="font-size:11px;font-weight:600;color:\${statusColor}">\${statusLabel}</span></td>
-    </tr>\`;
+    return `<tr style="background:${bg}">
+      <td><span class="tag">${r._aboNr}</span></td>
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis" title="${r._naam}">${r._naam}</td>
+      <td style="font-size:11px;color:var(--ts-muted)">${r.Regelnummer}</td>
+      <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.Itemcode||'—'}</code></td>
+      <td style="font-size:11px">${r.Basiseenheid||'—'}</td>
+      <td>${r.Aantal||0}</td>
+      <td>${r.Afwijkende_prijs ? '€'+parseFloat(r.Afwijkende_prijs).toFixed(2) : '—'}</td>
+      <td style="font-weight:500">${kortPct}</td>
+      <td>${r.Waarde_abonnement ? '€'+parseFloat(r.Waarde_abonnement).toFixed(2) : '—'}</td>
+      <td><span style="font-size:11px;font-weight:600;color:${statusColor}">${statusLabel}</span></td>
+    </tr>`;
   }).join('');
 }
 
