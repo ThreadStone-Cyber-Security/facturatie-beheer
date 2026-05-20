@@ -1761,6 +1761,18 @@ async function laadKortingAnalyse() {
       }
       aboMap[r.Nummer_abonnement].regels.push(r);
     });
+    // Voeg ook abos toe die alleen een KORT-TO-ABB regel hebben (geen andere overig regels)
+    kortingBestaand.forEach(r => {
+      if (!aboMap[r.Nummer_abonnement]) {
+        aboMap[r.Nummer_abonnement] = {
+          aboNr: r.Nummer_abonnement,
+          naam: r.Naam,
+          orgId: r.OrganisatieId,
+          regels: [],
+          kortingRegels: kortingPerAbo[r.Nummer_abonnement] || []
+        };
+      }
+    });
 
     kortingAnalyse = Object.values(aboMap).map(abo => {
       const actieveHoofdRegels = abo.regels.filter(r => isRegelActief(r) && r.Itemcode !== 'KORT-TO-ABB');
