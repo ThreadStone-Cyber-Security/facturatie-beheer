@@ -430,13 +430,18 @@ async function renderDashboard() {
                   const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
                   const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
                   const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+                  const facVanaf = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
                   // Moet gefactureerd worden als:
-                  // 1. gefactureerd_tm < laatste dag huidige maand
+                  // 1. gefactureerd_tm < laatste dag huidige maand (of nooit gefactureerd)
                   // 2. geen einddatum of einddatum >= laatste dag huidige maand
                   // 3. startdatum <= laatste dag huidige maand
+                  // 4. Factureren_vanaf (begindatum factuurcyclus) < laatste dag huidige maand
+                  //    (abo 117 case: factureren_vanaf = einddatum = niet meer te factureren)
                   const moetFact = (!gefact || gefact < eindeMaandStr) &&
                                    (!eind || eind >= eindeMaandStr) &&
-                                   (!start || start <= eindeMaandStr);
+                                   (!start || start <= eindeMaandStr) &&
+                                   (!facVanaf || facVanaf < eindeMaandStr) &&
+                                   !(eind && facVanaf && eind <= facVanaf); // einddatum <= factureren_vanaf = nooit gefactureerd
                   if (moetFact) facCyclus[cyclus].push(r);
                 });
                 const cyclusLabels = { 'M1':'Maand','M3':'Kwartaal','J1':'Jaar','J2':'2 Jaar','J3':'3 Jaar','J5':'5 Jaar','W1':'Week','D7':'7 Dagen' };
@@ -987,12 +992,23 @@ let ignoredRows = new Set();
 
 function isRegelActief(r) {
   if (!r.Einddatum) return true;
-  // Beëindigd = einddatum is gelijk aan of voor gefactureerd_tm
-  const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+  const eind = r.Einddatum.substring(0,10);
   const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
-  if (!eind) return true;
+  // Actief als einddatum in de toekomst ligt (na vandaag)
+  const vandaag = new Date().toISOString().split('T')[0];
+  if (eind > vandaag) return true;
+  // Of als einddatum na gefactureerd_tm (nog niet volledig gefactureerd)
   if (!gefact) return true;
-  return eind > gefact; // actief als einddatum na gefactureerd_tm
+  return eind > gefact;
+}
+
+function isKortingsregelOk(kortingRegel, hoofdRegels) {
+  // Kortingsregel is OK als:
+  // 1. Geen einddatum (loopt door)
+  // 2. Einddatum gelijk aan einddatum van een van de hoofdregels
+  if (!kortingRegel.Einddatum) return false; // geen einddatum = nog te beoordelen
+  const kortingEind = kortingRegel.Einddatum.substring(0,10);
+  return hoofdRegels.some(r => r.Einddatum && r.Einddatum.substring(0,10) === kortingEind);
 } // set of "org|billingType" keys
 
 function toggleIgnore(key, btn) {
@@ -1300,9 +1316,9 @@ function renderRegelsTable(c) {
       <table class="regels-tbl">
         <thead>
           <tr>
-            ${['Regelnummer','Nummer_abonnement','Type_abonnement','Naam','Itemcode','Basiseenheid','Begindatum','Einddatum','Gefactureerd_tm','Aantal','Originele_prijs','Afwijkende_prijs','Korting','Waarde_abonnement','Regel_Omschrijving'].map(f => `
+            ${['Regelnummer','Nummer_abonnement','Type_abonnement','Naam','Itemcode','Basiseenheid','Begindatum','Einddatum','Gefactureerd_tm','Factureren_vanaf','Aantal','Originele_prijs','Afwijkende_prijs','Korting','Waarde_abonnement','Regel_Omschrijving'].map(f => `
             <th onclick="sortRegels('${f}')" class="${regelsSortField===f?'sorted':''}">
-              ${f==='Regelnummer'?'Regel nr':f==='Nummer_abonnement'?'Abo nr':f==='Type_abonnement'?'Type':f==='Naam'?'Klant':f==='Itemcode'?'Product':f==='Basiseenheid'?'Cyclus':f==='Begindatum'?'Startdatum':f==='Einddatum'?'Einddatum':f==='Gefactureerd_tm'?'Gefact. t/m':f==='Aantal'?'Aantal':f==='Originele_prijs'?'Basisprijs':f==='Afwijkende_prijs'?'Prijs':f==='Korting'?'Korting %':f==='Waarde_abonnement'?'Regelwaarde':f==='Regel_Omschrijving'?'Regelomschrijving':f}
+              ${f==='Regelnummer'?'Regel nr':f==='Nummer_abonnement'?'Abo nr':f==='Type_abonnement'?'Type':f==='Naam'?'Klant':f==='Itemcode'?'Product':f==='Basiseenheid'?'Cyclus':f==='Begindatum'?'Startdatum':f==='Einddatum'?'Einddatum':f==='Gefactureerd_tm'?'Gefact. t/m':f==='Factureren_vanaf'?'Factuur vanaf':f==='Aantal'?'Aantal':f==='Originele_prijs'?'Basisprijs':f==='Afwijkende_prijs'?'Prijs':f==='Korting'?'Korting %':f==='Waarde_abonnement'?'Regelwaarde':f==='Regel_Omschrijving'?'Regelomschrijving':f}
               <span class="sort-icon">${regelsSortField===f?(regelsSortDir===1?'↑':'↓'):'↕'}</span>
             </th>`).join('')}
             <th></th>
@@ -1381,6 +1397,7 @@ function renderRegelRows() {
       <td style="font-size:11px">${fmtDate(r.Begindatum)}</td>
       <td style="font-size:11px;color:${r.Einddatum?'var(--ts-warning)':'inherit'}">${fmtDate(r.Einddatum)}</td>
       <td style="font-size:11px">${fmtDate(r.Gefactureerd_tm)}</td>
+      <td style="font-size:11px;color:var(--ts-muted)">${fmtDate(r.Factureren_vanaf)}</td>
       <td>${isEditing
         ? `<input class="inline-input" id="edit_aantal_${r.Regelnummer}" value="${r.Aantal||0}" type="number" style="width:70px" />`
         : (r.Aantal||0)}</td>
@@ -1591,11 +1608,14 @@ async function laadKortingAnalyse() {
     if (alleRegels.length === 0) { alleRegels = regels; }
 
     // Filter: only type Overig, only TechOne MSP klanten, only active
+    // Exclude: negative waarde (correcties), regels met kortingspercentage
     kortingRegels = regels.filter(r =>
       r.Type_abonnement === 'Overig' &&
       relIds.has(r.OrganisatieId) &&
       r.Itemcode !== 'KORT-TO-ABB' &&
-      isRegelActief(r)
+      isRegelActief(r) &&
+      (parseFloat(r.Waarde_abonnement) || 0) > 0 &&
+      (!r.Korting || parseFloat(r.Korting) === 0)
     );
 
     // Existing korting regels per abonnement
@@ -1629,8 +1649,11 @@ async function laadKortingAnalyse() {
       const afwijking = heeftKorting ? Math.abs(Math.abs(kortingWaarde) - verwachteKorting) > 0.01 : false;
       const actief = abo.regels.some(r => !r.Einddatum);
       let status;
-      if (!actief && heeftKorting) status = 'beeindigen';
-      else if (!heeftKorting && actief) status = 'ontbreekt';
+      if (!actief && heeftKorting) {
+        // Check if kortingsregel already has matching einddatum
+        const kortingEindOk = abo.kortingRegels.some(kr => isKortingsregelOk(kr, abo.regels));
+        status = kortingEindOk ? 'ok' : 'beeindigen';
+      } else if (!heeftKorting && actief) status = 'ontbreekt';
       else if (afwijking && actief) status = 'afwijking';
       else status = 'ok';
       return { ...abo, totaalWaarde, verwachteKorting, kortingWaarde, heeftKorting, afwijking, actief, status };
@@ -1692,7 +1715,7 @@ async function syncKorting(aboNr) {
   const abo = kortingAnalyse.find(a => a.aboNr === aboNr);
   if (!abo) return;
 
-  const kortingBedrag = -(abo.verwachteKorting);
+  const kortingBedrag = -Math.round(abo.verwachteKorting * 100) / 100;
   const bestaandeRegel = abo.kortingRegels[0];
 
   const lineFields = {
