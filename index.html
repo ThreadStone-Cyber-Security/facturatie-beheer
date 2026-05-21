@@ -2456,7 +2456,7 @@ async function bulkKortingAlleAbos() {
 // ── Voorcalculaties ──────────────────────────────────────────────────────────
 let vcrData = [];
 let vcrView = 'abonnement'; // 'abonnement' or 'eenmalig'
-let vcrFilters = { klant: '', vc: '', status: 'open', itemcode: '' };
+let vcrFilters = { klant: '', vc: '', status: 'klaar', itemcode: '', projectStatus: '' };
 let vcrSortField = 'VC_Nummer';
 let vcrSortDir = 1;
 let afasTokenVcr = '';
@@ -2499,10 +2499,31 @@ function isVcrTekst(r) {
   return r.Type_item && r.Type_item.toLowerCase() === 'tekst';
 }
 
+function isVcrGoedgekeurd(r) {
+  // Goedgekeurd = VC_StatusCode niet 0 (Onderhanden) of 3 (Verloren)
+  return r.VC_StatusCode !== '0' && r.VC_StatusCode !== '3';
+}
+
 function isVcrOpen(r) {
-  // Nog niet verwerkt
   if (isVcrAbonnement(r)) return !r.Verwerkt_in_Abo;
   return !r.Overgenomen_naar_nacalculatie;
+}
+
+function vcrStatus(r) {
+  // Bepaal de verwerkingsstatus van een regel
+  const goedgekeurd = isVcrGoedgekeurd(r);
+  const verwerkt = isVcrAbonnement(r) ? r.Verwerkt_in_Abo : r.Overgenomen_naar_nacalculatie;
+  if (verwerkt) return 'verwerkt';
+  if (!goedgekeurd) return 'onderhanden'; // VC niet goedgekeurd
+  if (!r.VC_Project) return 'geen_project'; // Goedgekeurd maar geen project
+  return 'klaar'; // Goedgekeurd + project aanwezig = klaar om te verwerken
+}
+
+function vcrOrganisatie(r) {
+  // Toon project_organisatie als project bestaat, anders forecast_organisatie
+  if (r.VC_Project && r.Project_Organisatie) return r.Project_Organisatie;
+  if (!r.VC_Project && r.Forecast_Organisatie) return r.Forecast_Organisatie;
+  return null;
 }
 
 function renderVcrTable(c) {
@@ -2510,15 +2531,21 @@ function renderVcrTable(c) {
   const definitief = vcrData.filter(r => r.VC_StatusCode === '1');
   const aboRegels = definitief.filter(r => !isVcrTekst(r) && isVcrAbonnement(r));
   const eenmaligRegels = definitief.filter(r => !isVcrTekst(r) && !isVcrAbonnement(r));
-  const openAbo = aboRegels.filter(r => !r.Verwerkt_in_Abo);
-  const openEenmalig = eenmaligRegels.filter(r => !r.Overgenomen_naar_nacalculatie);
+  const huidigeBron = vcrView === 'abonnement' ? aboRegels : eenmaligRegels;
+  const klaarCount = huidigeBron.filter(r => vcrStatus(r) === 'klaar').length;
+  const geenProjectCount = huidigeBron.filter(r => vcrStatus(r) === 'geen_project').length;
+  const verwerktCount = huidigeBron.filter(r => vcrStatus(r) === 'verwerkt').length;
 
   c.innerHTML = `
     <div class="stats-grid" style="margin-bottom:16px">
-      <div class="stat-card"><div class="stat-val">${definitief.length}</div><div class="stat-lbl">Definitieve regels</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:var(--ts-accent)">${aboRegels.length}</div><div class="stat-lbl">Abonnementsregels</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:var(--ts-warning)">${eenmaligRegels.length}</div><div class="stat-lbl">Eenmalige regels</div></div>
-      <div class="stat-card"><div class="stat-val" style="color:var(--ts-danger)">${openAbo.length + openEenmalig.length}</div><div class="stat-lbl">Nog te verwerken</div></div>
+      <div class="stat-card" style="cursor:pointer" onclick="vcrFilters.status='klaar';applyVcrFilters();updateVcrTbody()">
+        <div class="stat-val" style="color:var(--ts-success)">${klaarCount}</div>
+        <div class="stat-lbl">Klaar om te verwerken</div></div>
+      <div class="stat-card" style="cursor:pointer" onclick="vcrFilters.status='geen_project';applyVcrFilters();updateVcrTbody()">
+        <div class="stat-val" style="color:var(--ts-danger)">${geenProjectCount}</div>
+        <div class="stat-lbl">⚠ Geen project</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--ts-muted)">${verwerktCount}</div><div class="stat-lbl">Al verwerkt</div></div>
+      <div class="stat-card"><div class="stat-val">${huidigeBron.length}</div><div class="stat-lbl">Totaal ${vcrView === 'abonnement' ? 'abo' : 'eenmalig'} regels</div></div>
     </div>
 
     <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
@@ -2535,9 +2562,18 @@ function renderVcrTable(c) {
       <input placeholder="🔍 Itemcode" value="${vcrFilters.itemcode}" oninput="vcrFilters.itemcode=this.value;applyVcrFilters();updateVcrTbody()" style="min-width:140px" />
       <input placeholder="VC nummer" value="${vcrFilters.vc}" oninput="vcrFilters.vc=this.value;applyVcrFilters();updateVcrTbody()" style="width:110px" />
       <select onchange="vcrFilters.status=this.value;applyVcrFilters();updateVcrTbody()">
-        <option value="open" ${vcrFilters.status==='open'?'selected':''}>Nog te verwerken</option>
+        <option value="klaar" ${vcrFilters.status==='klaar'?'selected':''}>✓ Klaar om te verwerken</option>
+        <option value="geen_project" ${vcrFilters.status==='geen_project'?'selected':''}>⚠ Geen project</option>
+        <option value="open" ${vcrFilters.status==='open'?'selected':''}>Alle open</option>
         <option value="verwerkt" ${vcrFilters.status==='verwerkt'?'selected':''}>Al verwerkt</option>
+        <option value="onderhanden" ${vcrFilters.status==='onderhanden'?'selected':''}>Onderhanden (niet goedgekeurd)</option>
         <option value="alle" ${vcrFilters.status==='alle'?'selected':''}>Alle</option>
+      </select>
+      <select onchange="vcrFilters.projectStatus=this.value;applyVcrFilters();updateVcrTbody()" style="min-width:130px">
+        <option value="">Alle projectstatussen</option>
+        <option value="geen" ${vcrFilters.projectStatus==='geen'?'selected':''}>Geen project</option>
+        <option value="Realisatie" ${vcrFilters.projectStatus==='Realisatie'?'selected':''}>Realisatie</option>
+        <option value="Gereed gemeld" ${vcrFilters.projectStatus==='Gereed gemeld'?'selected':''}>Gereed gemeld</option>
       </select>
       <span class="regels-count" id="vcrCount">0 regels</span>
     </div>
@@ -2550,23 +2586,25 @@ function renderVcrTable(c) {
               ${vcrView === 'abonnement' ? `
               <th onclick="sortVcr('VC_Nummer')" class="${vcrSortField==='VC_Nummer'?'sorted':''}">VC nr <span class="sort-icon">${vcrSortField==='VC_Nummer'?(vcrSortDir===1?'↑':'↓'):'↕'}</span></th>
               <th onclick="sortVcr('VC_Verkooprelatie')" class="${vcrSortField==='VC_Verkooprelatie'?'sorted':''}">Klant <span class="sort-icon">↕</span></th>
+              <th>Organisatie</th>
               <th>Omschrijving</th>
               <th onclick="sortVcr('VCR_Itemcode')" class="${vcrSortField==='VCR_Itemcode'?'sorted':''}">Itemcode <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('Artikel_Soort')" class="${vcrSortField==='Artikel_Soort'?'sorted':''}">Artikelsoort <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Frequentie')" class="${vcrSortField==='VCR_Frequentie'?'sorted':''}">Cyclus <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Aantal')" class="${vcrSortField==='VCR_Aantal'?'sorted':''}">Aantal <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Eenheidsprijs')" class="${vcrSortField==='VCR_Eenheidsprijs'?'sorted':''}">Prijs <span class="sort-icon">↕</span></th>
-              <th>Project</th>
+              <th>Project / Status</th>
               <th>Status</th>
               <th></th>` : `
               <th onclick="sortVcr('VC_Nummer')" class="${vcrSortField==='VC_Nummer'?'sorted':''}">VC nr <span class="sort-icon">${vcrSortField==='VC_Nummer'?(vcrSortDir===1?'↑':'↓'):'↕'}</span></th>
               <th onclick="sortVcr('VC_Verkooprelatie')" class="${vcrSortField==='VC_Verkooprelatie'?'sorted':''}">Klant <span class="sort-icon">↕</span></th>
+              <th>Organisatie</th>
               <th>Omschrijving</th>
               <th onclick="sortVcr('VCR_Itemcode')" class="${vcrSortField==='VCR_Itemcode'?'sorted':''}">Itemcode <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('Artikel_Soort')" class="${vcrSortField==='Artikel_Soort'?'sorted':''}">Soort <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Aantal')" class="${vcrSortField==='VCR_Aantal'?'sorted':''}">Aantal <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Eenheidsprijs')" class="${vcrSortField==='VCR_Eenheidsprijs'?'sorted':''}">Prijs <span class="sort-icon">↕</span></th>
-              <th>Project</th>
+              <th>Project / Status</th>
               <th>Status</th>
               <th></th>`}
             </tr>
@@ -2590,11 +2628,19 @@ function applyVcrFilters() {
     : definitief.filter(r => !isVcrTekst(r) && !isVcrAbonnement(r));
 
   vcrGefilterd = bron.filter(r => {
-    if (vcrFilters.klant && !r.VC_Verkooprelatie?.toLowerCase().includes(vcrFilters.klant.toLowerCase())) return false;
+    if (vcrFilters.klant && !r.VC_Verkooprelatie?.toLowerCase().includes(vcrFilters.klant.toLowerCase()) &&
+        !r.Forecast_Organisatie?.toLowerCase().includes(vcrFilters.klant.toLowerCase()) &&
+        !r.Project_Organisatie?.toLowerCase().includes(vcrFilters.klant.toLowerCase())) return false;
     if (vcrFilters.itemcode && !r.VCR_Itemcode?.toLowerCase().includes(vcrFilters.itemcode.toLowerCase())) return false;
     if (vcrFilters.vc && !r.VC_Nummer?.toLowerCase().includes(vcrFilters.vc.toLowerCase())) return false;
-    if (vcrFilters.status === 'open' && !isVcrOpen(r)) return false;
-    if (vcrFilters.status === 'verwerkt' && isVcrOpen(r)) return false;
+    const status = vcrStatus(r);
+    if (vcrFilters.status === 'klaar' && status !== 'klaar') return false;
+    if (vcrFilters.status === 'geen_project' && status !== 'geen_project') return false;
+    if (vcrFilters.status === 'open' && status === 'verwerkt') return false;
+    if (vcrFilters.status === 'verwerkt' && status !== 'verwerkt') return false;
+    if (vcrFilters.status === 'onderhanden' && status !== 'onderhanden') return false;
+    if (vcrFilters.projectStatus === 'geen' && r.VC_Project) return false;
+    if (vcrFilters.projectStatus && vcrFilters.projectStatus !== 'geen' && r.Project_Status !== vcrFilters.projectStatus) return false;
     return true;
   });
 
@@ -2629,36 +2675,53 @@ function renderVcrRows() {
 
   return vcrGefilterd.map(r => {
     const verwerkt = vcrView === 'abonnement' ? r.Verwerkt_in_Abo : r.Overgenomen_naar_nacalculatie;
-    const statusLabel = verwerkt
+    const status = vcrStatus(r);
+    const statusLabel = status === 'verwerkt'
       ? `<span style="color:var(--ts-success);font-size:12px">✓ Verwerkt</span>`
-      : `<span style="color:var(--ts-danger);font-size:12px;font-weight:600">● Open</span>`;
+      : status === 'klaar'
+        ? `<span style="color:var(--ts-accent);font-size:12px;font-weight:600">▶ Klaar</span>`
+        : status === 'geen_project'
+          ? `<span style="color:var(--ts-danger);font-size:12px">⚠ Geen project</span>`
+          : `<span style="color:var(--ts-muted);font-size:12px">◌ Onderhanden</span>`;
 
     if (vcrView === 'abonnement') {
       return `<tr>
         <td><span class="tag" style="font-size:11px">${r.VC_Nummer}</span></td>
-        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${r.VC_Verkooprelatie}">${r.VC_Verkooprelatie}</td>
-        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:12px" title="${r.VCR_Omschrijving}">${r.VCR_Omschrijving||'—'}</td>
+        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis" title="${r.VC_Verkooprelatie}">${r.VC_Verkooprelatie}</td>
+        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${vcrOrganisatie(r) && vcrOrganisatie(r)!==r.VC_Verkooprelatie?'var(--ts-warning)':'var(--ts-muted)'}" title="${vcrOrganisatie(r)||''}">${vcrOrganisatie(r)||'—'}</td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;font-size:12px" title="${r.VCR_Omschrijving}">${r.VCR_Omschrijving||'—'}</td>
         <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.VCR_Itemcode||'—'}</code></td>
         <td style="font-size:11px;color:var(--ts-muted)">${r.Artikel_Soort||'—'}</td>
         <td><span class="badge badge-csv" style="font-size:10px">${r.VCR_Frequentie||'—'}</span></td>
         <td>${r.VCR_Aantal||0}</td>
         <td>${fmtEur(r.VCR_Eenheidsprijs)}</td>
-        <td style="font-size:11px;color:var(--ts-muted)">${r.VC_Project||'—'}</td>
+        <td style="font-size:11px">
+          ${r.VC_Project
+            ? `<span class="tag" style="font-size:10px">${r.VC_Project}</span>
+               <span style="font-size:10px;color:var(--ts-muted);display:block">${r.Project_Status||''}</span>`
+            : '<span style="color:var(--ts-danger);font-size:11px">⚠ Geen project</span>'}
+        </td>
         <td>${statusLabel}</td>
-        <td>${!verwerkt ? `<button class="save-row-btn" style="font-size:11px;white-space:nowrap" onclick="openNieuwAboModal('${r.VCR_GUID}')">+ Abonnement</button>` : ''}</td>
+        <td>${!verwerkt ? `<button class="save-row-btn" style="font-size:11px;white-space:nowrap" onclick="openNieuwAboModal('${r.VCR_GUID}')" ${vcrStatus(r)!=='klaar'?'disabled title="Wacht op goedkeuring of project"':''}>+ Abonnement</button>` : ''}</td>
       </tr>`;
     } else {
       return `<tr>
         <td><span class="tag" style="font-size:11px">${r.VC_Nummer}</span></td>
-        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${r.VC_Verkooprelatie}">${r.VC_Verkooprelatie}</td>
-        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:12px" title="${r.VCR_Omschrijving}">${r.VCR_Omschrijving||'—'}</td>
+        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis" title="${r.VC_Verkooprelatie}">${r.VC_Verkooprelatie}</td>
+        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${vcrOrganisatie(r) && vcrOrganisatie(r)!==r.VC_Verkooprelatie?'var(--ts-warning)':'var(--ts-muted)'}" title="${vcrOrganisatie(r)||''}">${vcrOrganisatie(r)||'—'}</td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;font-size:12px" title="${r.VCR_Omschrijving}">${r.VCR_Omschrijving||'—'}</td>
         <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.VCR_Itemcode||'—'}</code></td>
         <td style="font-size:11px;color:var(--ts-muted)">${r.Artikel_Soort||'—'}</td>
         <td>${r.VCR_Aantal||0}</td>
         <td>${fmtEur(r.VCR_Eenheidsprijs)}</td>
-        <td style="font-size:11px;color:var(--ts-muted)">${r.VC_Project||'—'}</td>
+        <td style="font-size:11px">
+          ${r.VC_Project
+            ? `<span class="tag" style="font-size:10px">${r.VC_Project}</span>
+               <span style="font-size:10px;color:var(--ts-muted);display:block">${r.Project_Status||''}</span>`
+            : '<span style="color:var(--ts-danger);font-size:11px">⚠ Geen project</span>'}
+        </td>
         <td>${statusLabel}</td>
-        <td>${!verwerkt ? `<button class="save-row-btn" style="font-size:11px;white-space:nowrap" onclick="openNacalcModal('${r.VCR_GUID}')">→ Nacalc</button>` : ''}</td>
+        <td>${!verwerkt ? `<button class="save-row-btn" style="font-size:11px;white-space:nowrap" onclick="openNacalcModal('${r.VCR_GUID}')" ${vcrStatus(r)!=='klaar'?'disabled title="Wacht op goedkeuring of project"':''}>→ Nacalc</button>` : ''}</td>
       </tr>`;
     }
   }).join('');
