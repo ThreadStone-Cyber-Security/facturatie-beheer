@@ -2492,7 +2492,11 @@ async function laadVoorcalculaties() {
 }
 
 function isVcrAbonnement(r) {
-  return r.VCR_Frequentie && r.VCR_Frequentie !== '';
+  return r.Artikel_Soort && r.Artikel_Soort.toLowerCase().includes('abonnement');
+}
+
+function isVcrTekst(r) {
+  return r.Type_item && r.Type_item.toLowerCase() === 'tekst';
 }
 
 function isVcrOpen(r) {
@@ -2504,8 +2508,8 @@ function isVcrOpen(r) {
 function renderVcrTable(c) {
   applyVcrFilters();
   const definitief = vcrData.filter(r => r.VC_StatusCode === '1');
-  const aboRegels = definitief.filter(isVcrAbonnement);
-  const eenmaligRegels = definitief.filter(r => !isVcrAbonnement(r));
+  const aboRegels = definitief.filter(r => !isVcrTekst(r) && isVcrAbonnement(r));
+  const eenmaligRegels = definitief.filter(r => !isVcrTekst(r) && !isVcrAbonnement(r));
   const openAbo = aboRegels.filter(r => !r.Verwerkt_in_Abo);
   const openEenmalig = eenmaligRegels.filter(r => !r.Overgenomen_naar_nacalculatie);
 
@@ -2548,6 +2552,7 @@ function renderVcrTable(c) {
               <th onclick="sortVcr('VC_Verkooprelatie')" class="${vcrSortField==='VC_Verkooprelatie'?'sorted':''}">Klant <span class="sort-icon">↕</span></th>
               <th>Omschrijving</th>
               <th onclick="sortVcr('VCR_Itemcode')" class="${vcrSortField==='VCR_Itemcode'?'sorted':''}">Itemcode <span class="sort-icon">↕</span></th>
+              <th onclick="sortVcr('Artikel_Soort')" class="${vcrSortField==='Artikel_Soort'?'sorted':''}">Artikelsoort <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Frequentie')" class="${vcrSortField==='VCR_Frequentie'?'sorted':''}">Cyclus <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Aantal')" class="${vcrSortField==='VCR_Aantal'?'sorted':''}">Aantal <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Eenheidsprijs')" class="${vcrSortField==='VCR_Eenheidsprijs'?'sorted':''}">Prijs <span class="sort-icon">↕</span></th>
@@ -2558,6 +2563,7 @@ function renderVcrTable(c) {
               <th onclick="sortVcr('VC_Verkooprelatie')" class="${vcrSortField==='VC_Verkooprelatie'?'sorted':''}">Klant <span class="sort-icon">↕</span></th>
               <th>Omschrijving</th>
               <th onclick="sortVcr('VCR_Itemcode')" class="${vcrSortField==='VCR_Itemcode'?'sorted':''}">Itemcode <span class="sort-icon">↕</span></th>
+              <th onclick="sortVcr('Artikel_Soort')" class="${vcrSortField==='Artikel_Soort'?'sorted':''}">Soort <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Aantal')" class="${vcrSortField==='VCR_Aantal'?'sorted':''}">Aantal <span class="sort-icon">↕</span></th>
               <th onclick="sortVcr('VCR_Eenheidsprijs')" class="${vcrSortField==='VCR_Eenheidsprijs'?'sorted':''}">Prijs <span class="sort-icon">↕</span></th>
               <th>Project</th>
@@ -2580,8 +2586,8 @@ let vcrGefilterd = [];
 function applyVcrFilters() {
   const definitief = vcrData.filter(r => r.VC_StatusCode === '1');
   const bron = vcrView === 'abonnement'
-    ? definitief.filter(isVcrAbonnement)
-    : definitief.filter(r => !isVcrAbonnement(r));
+    ? definitief.filter(r => !isVcrTekst(r) && isVcrAbonnement(r))
+    : definitief.filter(r => !isVcrTekst(r) && !isVcrAbonnement(r));
 
   vcrGefilterd = bron.filter(r => {
     if (vcrFilters.klant && !r.VC_Verkooprelatie?.toLowerCase().includes(vcrFilters.klant.toLowerCase())) return false;
@@ -2633,6 +2639,7 @@ function renderVcrRows() {
         <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${r.VC_Verkooprelatie}">${r.VC_Verkooprelatie}</td>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:12px" title="${r.VCR_Omschrijving}">${r.VCR_Omschrijving||'—'}</td>
         <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.VCR_Itemcode||'—'}</code></td>
+        <td style="font-size:11px;color:var(--ts-muted)">${r.Artikel_Soort||'—'}</td>
         <td><span class="badge badge-csv" style="font-size:10px">${r.VCR_Frequentie||'—'}</span></td>
         <td>${r.VCR_Aantal||0}</td>
         <td>${fmtEur(r.VCR_Eenheidsprijs)}</td>
@@ -2646,6 +2653,7 @@ function renderVcrRows() {
         <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${r.VC_Verkooprelatie}">${r.VC_Verkooprelatie}</td>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:12px" title="${r.VCR_Omschrijving}">${r.VCR_Omschrijving||'—'}</td>
         <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.VCR_Itemcode||'—'}</code></td>
+        <td style="font-size:11px;color:var(--ts-muted)">${r.Artikel_Soort||'—'}</td>
         <td>${r.VCR_Aantal||0}</td>
         <td>${fmtEur(r.VCR_Eenheidsprijs)}</td>
         <td style="font-size:11px;color:var(--ts-muted)">${r.VC_Project||'—'}</td>
