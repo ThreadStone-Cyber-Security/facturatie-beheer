@@ -206,6 +206,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7h.01M17 17h.01M3 12a9 9 0 1018 0 9 9 0 00-18 0zM7.5 7.5l9 9"/></svg>
         Korting Techone
       </div>
+      <div class="nav-item" onclick="showTab('voorcalculaties')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Voorcalculaties
+      </div>
       <div class="nav-item" onclick="showTab('sync')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
         AFAS Sync
@@ -317,8 +321,8 @@ async function loadProducenten() {
 // ── Tab routing ──────────────────────────────────────────────────────────────
 function showTab(tab) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[['dashboard','abonnementen','regels','korting','sync'].indexOf(tab)]?.classList.add('active');
-  const titles = { dashboard: 'Dashboard', abonnementen: 'Abonnementen', regels: 'Abonnementsregels', korting: 'Korting Techone', sync: 'AFAS Sync' };
+  document.querySelectorAll('.nav-item')[['dashboard','abonnementen','regels','korting','voorcalculaties','sync'].indexOf(tab)]?.classList.add('active');
+  const titles = { dashboard: 'Dashboard', abonnementen: 'Abonnementen', regels: 'Abonnementsregels', korting: 'Korting Techone', voorcalculaties: 'Voorcalculaties', sync: 'AFAS Sync' };
   document.getElementById('pageTitle').textContent = titles[tab];
   document.getElementById('topActions').innerHTML = '';
   if (tab === 'dashboard') renderDashboard();
@@ -328,6 +332,7 @@ function showTab(tab) {
   else if (tab === 'abonnementen') renderAbonnementen();
   else if (tab === 'regels') renderRegels();
   else if (tab === 'korting') renderKorting();
+  else if (tab === 'voorcalculaties') renderVoorcalculaties();
   else if (tab === 'sync') renderSync();
 }
 
@@ -1963,16 +1968,21 @@ async function beeindigenKortingsregel(aboNr, silent = false) {
     }
   }
 
-  // Update lokale staat ongeacht errors — verwijder uit kortingRegels
-  abo.heeftKorting = false;
-  abo.kortingRegels = [];
-  // Update in alleRegels ook
-  const idx = alleRegels.findIndex(r => r.Nummer_abonnement === aboNr && r.Itemcode === 'KORT-TO-ABB');
-  if (idx >= 0) alleRegels.splice(idx, 1);
+  // Update lokale staat alleen als er geen fouten waren
+  if (errors === 0) {
+    abo.heeftKorting = false;
+    abo.kortingRegels = [];
+    // Update in alleRegels ook
+    alleRegels = alleRegels.filter(r => !(r.Nummer_abonnement === aboNr && r.Itemcode === 'KORT-TO-ABB'));
+  }
 
   if (!silent) {
     renderKortingResultaat(document.getElementById('mainContent'));
-    showToast(`KORT-TO-ABB abo ${aboNr} ${errors === 0 ? 'verwijderd/beëindigd' : 'verwerkt ('+errors+' fouten)'}`, 'success');
+    if (errors === 0) {
+      showToast(`KORT-TO-ABB abo ${aboNr} verwijderd/beëindigd`, 'success');
+    } else {
+      showToast(`Fout bij verwerken abo ${aboNr} — controleer de console`, 'error');
+    }
   }
 }
 
@@ -2441,6 +2451,356 @@ async function bulkKortingAlleAbos() {
   progressDiv.remove();
   renderKortingResultaat(c);
   showToast(`50% korting toegepast op ${ok} regel(s)${errors>0?' ('+errors+' fouten)':''}`, ok>0?'success':'error');
+}
+
+// ── Voorcalculaties ──────────────────────────────────────────────────────────
+let vcrData = [];
+let vcrView = 'abonnement'; // 'abonnement' or 'eenmalig'
+let vcrFilters = { klant: '', vc: '', status: 'open', itemcode: '' };
+let vcrSortField = 'VC_Nummer';
+let vcrSortDir = 1;
+let afasTokenVcr = '';
+
+async function renderVoorcalculaties() {
+  const c = document.getElementById('mainContent');
+  document.getElementById('topActions').innerHTML = `
+    <input type="password" id="afasTokenVcrInput" placeholder="AFAS token" value="${afasTokenVcr||afasTokenRegels||afasToken}"
+      style="font-size:12px;padding:5px 10px;border:1px solid var(--ts-border);border-radius:var(--radius);width:220px"
+      oninput="afasTokenVcr=this.value;afasToken=this.value" />
+    <button class="btn btn-secondary btn-sm" onclick="laadVoorcalculaties()">↻ Laden</button>`;
+
+  if (vcrData.length === 0) {
+    c.innerHTML = `<div class="empty-state">Vul het AFAS token in en klik op Laden.</div>`;
+    return;
+  }
+  renderVcrTable(c);
+}
+
+async function laadVoorcalculaties() {
+  afasTokenVcr = document.getElementById('afasTokenVcrInput')?.value || afasToken;
+  afasToken = afasTokenVcr;
+  afasTokenRegels = afasTokenVcr;
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Voorcalculatieregels laden...</div>';
+  try {
+    // Alleen definitieve voorcalculaties ophalen (VC_StatusCode = 1)
+    const data = await afasGet('PowerP_Voorcalculatie');
+    vcrData = data;
+    renderVcrTable(c);
+    showToast(`${vcrData.length} voorcalculatieregels geladen`, 'success');
+  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+}
+
+function isVcrAbonnement(r) {
+  return r.VCR_Frequentie && r.VCR_Frequentie !== '';
+}
+
+function isVcrOpen(r) {
+  // Nog niet verwerkt
+  if (isVcrAbonnement(r)) return !r.Verwerkt_in_Abo;
+  return !r.Overgenomen_naar_nacalculatie;
+}
+
+function renderVcrTable(c) {
+  applyVcrFilters();
+  const definitief = vcrData.filter(r => r.VC_StatusCode === '1');
+  const aboRegels = definitief.filter(isVcrAbonnement);
+  const eenmaligRegels = definitief.filter(r => !isVcrAbonnement(r));
+  const openAbo = aboRegels.filter(r => !r.Verwerkt_in_Abo);
+  const openEenmalig = eenmaligRegels.filter(r => !r.Overgenomen_naar_nacalculatie);
+
+  c.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:16px">
+      <div class="stat-card"><div class="stat-val">${definitief.length}</div><div class="stat-lbl">Definitieve regels</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--ts-accent)">${aboRegels.length}</div><div class="stat-lbl">Abonnementsregels</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--ts-warning)">${eenmaligRegels.length}</div><div class="stat-lbl">Eenmalige regels</div></div>
+      <div class="stat-card"><div class="stat-val" style="color:var(--ts-danger)">${openAbo.length + openEenmalig.length}</div><div class="stat-lbl">Nog te verwerken</div></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
+      <button class="btn ${vcrView==='abonnement'?'btn-primary':'btn-secondary'} btn-sm" onclick="vcrView='abonnement';renderVcrTable(document.getElementById('mainContent'))">
+        📅 Abonnementsregels (${aboRegels.length})
+      </button>
+      <button class="btn ${vcrView==='eenmalig'?'btn-primary':'btn-secondary'} btn-sm" onclick="vcrView='eenmalig';renderVcrTable(document.getElementById('mainContent'))">
+        📋 Eenmalige regels (${eenmaligRegels.length})
+      </button>
+    </div>
+
+    <div class="filter-bar">
+      <input placeholder="🔍 Klant" value="${vcrFilters.klant}" oninput="vcrFilters.klant=this.value;applyVcrFilters();updateVcrTbody()" style="flex:1;min-width:140px" />
+      <input placeholder="🔍 Itemcode" value="${vcrFilters.itemcode}" oninput="vcrFilters.itemcode=this.value;applyVcrFilters();updateVcrTbody()" style="min-width:140px" />
+      <input placeholder="VC nummer" value="${vcrFilters.vc}" oninput="vcrFilters.vc=this.value;applyVcrFilters();updateVcrTbody()" style="width:110px" />
+      <select onchange="vcrFilters.status=this.value;applyVcrFilters();updateVcrTbody()">
+        <option value="open" ${vcrFilters.status==='open'?'selected':''}>Nog te verwerken</option>
+        <option value="verwerkt" ${vcrFilters.status==='verwerkt'?'selected':''}>Al verwerkt</option>
+        <option value="alle" ${vcrFilters.status==='alle'?'selected':''}>Alle</option>
+      </select>
+      <span class="regels-count" id="vcrCount">0 regels</span>
+    </div>
+
+    <div class="card">
+      <div class="tbl-wrapper">
+        <table class="regels-tbl">
+          <thead>
+            <tr>
+              ${vcrView === 'abonnement' ? `
+              <th onclick="sortVcr('VC_Nummer')" class="${vcrSortField==='VC_Nummer'?'sorted':''}">VC nr <span class="sort-icon">${vcrSortField==='VC_Nummer'?(vcrSortDir===1?'↑':'↓'):'↕'}</span></th>
+              <th onclick="sortVcr('VC_Verkooprelatie')" class="${vcrSortField==='VC_Verkooprelatie'?'sorted':''}">Klant <span class="sort-icon">↕</span></th>
+              <th>Omschrijving</th>
+              <th onclick="sortVcr('VCR_Itemcode')" class="${vcrSortField==='VCR_Itemcode'?'sorted':''}">Itemcode <span class="sort-icon">↕</span></th>
+              <th onclick="sortVcr('VCR_Frequentie')" class="${vcrSortField==='VCR_Frequentie'?'sorted':''}">Cyclus <span class="sort-icon">↕</span></th>
+              <th onclick="sortVcr('VCR_Aantal')" class="${vcrSortField==='VCR_Aantal'?'sorted':''}">Aantal <span class="sort-icon">↕</span></th>
+              <th onclick="sortVcr('VCR_Eenheidsprijs')" class="${vcrSortField==='VCR_Eenheidsprijs'?'sorted':''}">Prijs <span class="sort-icon">↕</span></th>
+              <th>Project</th>
+              <th>Status</th>
+              <th></th>` : `
+              <th onclick="sortVcr('VC_Nummer')" class="${vcrSortField==='VC_Nummer'?'sorted':''}">VC nr <span class="sort-icon">${vcrSortField==='VC_Nummer'?(vcrSortDir===1?'↑':'↓'):'↕'}</span></th>
+              <th onclick="sortVcr('VC_Verkooprelatie')" class="${vcrSortField==='VC_Verkooprelatie'?'sorted':''}">Klant <span class="sort-icon">↕</span></th>
+              <th>Omschrijving</th>
+              <th onclick="sortVcr('VCR_Itemcode')" class="${vcrSortField==='VCR_Itemcode'?'sorted':''}">Itemcode <span class="sort-icon">↕</span></th>
+              <th onclick="sortVcr('VCR_Aantal')" class="${vcrSortField==='VCR_Aantal'?'sorted':''}">Aantal <span class="sort-icon">↕</span></th>
+              <th onclick="sortVcr('VCR_Eenheidsprijs')" class="${vcrSortField==='VCR_Eenheidsprijs'?'sorted':''}">Prijs <span class="sort-icon">↕</span></th>
+              <th>Project</th>
+              <th>Status</th>
+              <th></th>`}
+            </tr>
+          </thead>
+          <tbody id="vcrTbody">
+            ${renderVcrRows()}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  updateVcrCount();
+}
+
+let vcrGefilterd = [];
+
+function applyVcrFilters() {
+  const definitief = vcrData.filter(r => r.VC_StatusCode === '1');
+  const bron = vcrView === 'abonnement'
+    ? definitief.filter(isVcrAbonnement)
+    : definitief.filter(r => !isVcrAbonnement(r));
+
+  vcrGefilterd = bron.filter(r => {
+    if (vcrFilters.klant && !r.VC_Verkooprelatie?.toLowerCase().includes(vcrFilters.klant.toLowerCase())) return false;
+    if (vcrFilters.itemcode && !r.VCR_Itemcode?.toLowerCase().includes(vcrFilters.itemcode.toLowerCase())) return false;
+    if (vcrFilters.vc && !r.VC_Nummer?.toLowerCase().includes(vcrFilters.vc.toLowerCase())) return false;
+    if (vcrFilters.status === 'open' && !isVcrOpen(r)) return false;
+    if (vcrFilters.status === 'verwerkt' && isVcrOpen(r)) return false;
+    return true;
+  });
+
+  vcrGefilterd.sort((a, b) => {
+    const av = a[vcrSortField] ?? '';
+    const bv = b[vcrSortField] ?? '';
+    if (typeof av === 'number') return (av - bv) * vcrSortDir;
+    return String(av).localeCompare(String(bv)) * vcrSortDir;
+  });
+}
+
+function sortVcr(field) {
+  if (vcrSortField === field) vcrSortDir *= -1;
+  else { vcrSortField = field; vcrSortDir = 1; }
+  applyVcrFilters();
+  updateVcrTbody();
+}
+
+function updateVcrCount() {
+  const el = document.getElementById('vcrCount');
+  if (el) el.textContent = `${vcrGefilterd.length} regels`;
+}
+
+function updateVcrTbody() {
+  updateVcrCount();
+  document.getElementById('vcrTbody').innerHTML = renderVcrRows();
+}
+
+function renderVcrRows() {
+  if (vcrGefilterd.length === 0) return `<tr><td colspan="10" class="empty-state">Geen regels gevonden</td></tr>`;
+  const fmtEur = v => v ? '€'+parseFloat(v).toFixed(2) : '—';
+
+  return vcrGefilterd.map(r => {
+    const verwerkt = vcrView === 'abonnement' ? r.Verwerkt_in_Abo : r.Overgenomen_naar_nacalculatie;
+    const statusLabel = verwerkt
+      ? `<span style="color:var(--ts-success);font-size:12px">✓ Verwerkt</span>`
+      : `<span style="color:var(--ts-danger);font-size:12px;font-weight:600">● Open</span>`;
+
+    if (vcrView === 'abonnement') {
+      return `<tr>
+        <td><span class="tag" style="font-size:11px">${r.VC_Nummer}</span></td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${r.VC_Verkooprelatie}">${r.VC_Verkooprelatie}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:12px" title="${r.VCR_Omschrijving}">${r.VCR_Omschrijving||'—'}</td>
+        <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.VCR_Itemcode||'—'}</code></td>
+        <td><span class="badge badge-csv" style="font-size:10px">${r.VCR_Frequentie||'—'}</span></td>
+        <td>${r.VCR_Aantal||0}</td>
+        <td>${fmtEur(r.VCR_Eenheidsprijs)}</td>
+        <td style="font-size:11px;color:var(--ts-muted)">${r.VC_Project||'—'}</td>
+        <td>${statusLabel}</td>
+        <td>${!verwerkt ? `<button class="save-row-btn" style="font-size:11px;white-space:nowrap" onclick="openNieuwAboModal('${r.VCR_GUID}')">+ Abonnement</button>` : ''}</td>
+      </tr>`;
+    } else {
+      return `<tr>
+        <td><span class="tag" style="font-size:11px">${r.VC_Nummer}</span></td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${r.VC_Verkooprelatie}">${r.VC_Verkooprelatie}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:12px" title="${r.VCR_Omschrijving}">${r.VCR_Omschrijving||'—'}</td>
+        <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.VCR_Itemcode||'—'}</code></td>
+        <td>${r.VCR_Aantal||0}</td>
+        <td>${fmtEur(r.VCR_Eenheidsprijs)}</td>
+        <td style="font-size:11px;color:var(--ts-muted)">${r.VC_Project||'—'}</td>
+        <td>${statusLabel}</td>
+        <td>${!verwerkt ? `<button class="save-row-btn" style="font-size:11px;white-space:nowrap" onclick="openNacalcModal('${r.VCR_GUID}')">→ Nacalc</button>` : ''}</td>
+      </tr>`;
+    }
+  }).join('');
+}
+
+function openNieuwAboModal(guid) {
+  const r = vcrData.find(x => x.VCR_GUID === guid);
+  if (!r) return;
+  document.getElementById('vcrModal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'vcrModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:28px;width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.2);max-height:90vh;overflow-y:auto">
+      <h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Nieuw abonnement aanmaken</h3>
+      <p style="font-size:12px;color:var(--ts-muted);margin-bottom:20px">${r.VC_Nummer} — ${r.VC_Verkooprelatie}</p>
+      <div style="background:var(--ts-bg);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div><span style="color:var(--ts-muted)">Itemcode:</span> <strong>${r.VCR_Itemcode}</strong></div>
+          <div><span style="color:var(--ts-muted)">Cyclus:</span> <strong>${r.VCR_Frequentie}</strong></div>
+          <div><span style="color:var(--ts-muted)">Aantal:</span> <strong>${r.VCR_Aantal}</strong></div>
+          <div><span style="color:var(--ts-muted)">Prijs:</span> <strong>€${parseFloat(r.VCR_Eenheidsprijs).toFixed(2)}</strong></div>
+          <div><span style="color:var(--ts-muted)">Project:</span> <strong>${r.VC_Project||'—'}</strong></div>
+          <div><span style="color:var(--ts-muted)">Relatie:</span> <strong>${r.VC_Verkooprelatienr}</strong></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="form-field"><label>Startdatum abonnement</label><input type="date" id="aboStartdatum" value="${new Date().toISOString().split('T')[0]}" /></div>
+        <div class="form-field"><label>Begindatum factuurcyclus</label><input type="date" id="aboFactuurdatum" value="${new Date().toISOString().split('T')[0]}" /></div>
+        <div class="form-field"><label>50% korting toepassen</label>
+          <select id="aboKorting50">
+            <option value="ja">Ja — 50% kortingspercentage</option>
+            <option value="nee">Nee — geen korting</option>
+          </select>
+        </div>
+        <div class="form-field"><label>Afwijkende prijs (optioneel)</label><input type="number" id="aboAfwPrijs" step="0.01" placeholder="Leeg = basisprijs" /></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('vcrModal').remove()">Annuleren</button>
+        <button class="save-row-btn" onclick="maakNieuwAbonnement('${guid}')">+ Aanmaken</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+function openNacalcModal(guid) {
+  const r = vcrData.find(x => x.VCR_GUID === guid);
+  if (!r) return;
+  document.getElementById('vcrModal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'vcrModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:28px;width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+      <h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Naar nacalculatie omzetten</h3>
+      <p style="font-size:12px;color:var(--ts-muted);margin-bottom:20px">${r.VC_Nummer} — ${r.VC_Verkooprelatie}</p>
+      <div style="background:var(--ts-bg);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div><span style="color:var(--ts-muted)">Itemcode:</span> <strong>${r.VCR_Itemcode}</strong></div>
+          <div><span style="color:var(--ts-muted)">Aantal:</span> <strong>${r.VCR_Aantal}</strong></div>
+          <div><span style="color:var(--ts-muted)">Prijs:</span> <strong>€${parseFloat(r.VCR_Eenheidsprijs).toFixed(2)}</strong></div>
+          <div><span style="color:var(--ts-muted)">Project:</span> <strong>${r.VC_Project||'—'}</strong></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="form-field"><label>Splits in losse regels</label>
+          <select id="nacalcSplits">
+            <option value="1">Niet splitsen (${r.VCR_Aantal}x als 1 regel)</option>
+            ${parseFloat(r.VCR_Aantal) > 1 ? `<option value="${r.VCR_Aantal}">Splitsen in ${r.VCR_Aantal} losse regels (1x elk)</option>` : ''}
+          </select>
+        </div>
+        <div class="form-field"><label>50% korting toepassen</label>
+          <select id="nacalcKorting50">
+            <option value="nee">Nee — geen korting</option>
+            <option value="ja">Ja — 50% kortingspercentage</option>
+          </select>
+        </div>
+        <div class="form-field"><label>Datum nacalculatie</label><input type="date" id="nacalcDatum" value="${new Date().toISOString().split('T')[0]}" /></div>
+        <div class="form-field"><label>Afwijkende prijs (optioneel)</label><input type="number" id="nacalcAfwPrijs" step="0.01" placeholder="Leeg = basisprijs" /></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('vcrModal').remove()">Annuleren</button>
+        <button class="save-row-btn" onclick="maakNacalculatie('${guid}')">→ Omzetten</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+async function maakNieuwAbonnement(guid) {
+  const r = vcrData.find(x => x.VCR_GUID === guid);
+  if (!r) return;
+  const startdatum = document.getElementById('aboStartdatum').value;
+  const factuurdatum = document.getElementById('aboFactuurdatum').value;
+  const korting50 = document.getElementById('aboKorting50').value === 'ja';
+  const afwPrijs = document.getElementById('aboAfwPrijs').value;
+
+  const lineFields = {
+    "VaIt": "2",
+    "ItCd": r.VCR_Itemcode,
+    "Qu": parseFloat(r.VCR_Aantal),
+    "InFr": factuurdatum,
+    "DaSt": factuurdatum
+  };
+  if (afwPrijs) lineFields["Pric"] = parseFloat(afwPrijs);
+  if (korting50) { lineFields["DcPr"] = 50; lineFields["IsPc"] = true; }
+
+  const body = {
+    "FbSubscription": {
+      "Element": {
+        "Fields": {
+          "BcId": r.VC_Verkooprelatienr,
+          "DbId": r.VC_Verkooprelatienr,
+          "SuSt": startdatum,
+          "DaSt": factuurdatum,
+          "VaSu": "100",
+          "VaIn": r.VCR_Frequentie
+        },
+        "Objects": {
+          "FbSubscriptionLines": {
+            "Element": { "Fields": lineFields }
+          }
+        }
+      }
+    }
+  };
+
+  try {
+    const res = await fetch(`${AFAS_BASE}/connectors/FbSubscription`, {
+      method: 'POST',
+      headers: { 'Authorization': `AfasToken ${btoa(afasToken)}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (res.ok || res.status === 201) {
+      document.getElementById('vcrModal')?.remove();
+      r.Verwerkt_in_Abo = true;
+      applyVcrFilters();
+      updateVcrTbody();
+      showToast(`Abonnement aangemaakt voor ${r.VC_Verkooprelatie}`, 'success');
+    } else {
+      const err = await res.text();
+      showToast(`Fout: ${err.substring(0,150)}`, 'error');
+    }
+  } catch(e) { showToast('Fout: ' + e.message, 'error'); }
+}
+
+async function maakNacalculatie(guid) {
+  showToast('Nacalculatie omzetting — connector nog te bepalen via AFAS metainfo', 'error');
+  // TODO: implement once we know the correct UpdateConnector for nacalculatie
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────
