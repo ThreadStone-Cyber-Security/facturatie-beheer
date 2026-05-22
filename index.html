@@ -2520,9 +2520,9 @@ function vcrStatus(r) {
 }
 
 function vcrOrganisatie(r) {
-  // Toon project_organisatie als project bestaat, anders forecast_organisatie
-  if (r.VC_Project && r.Project_Organisatie) return r.Project_Organisatie;
-  if (!r.VC_Project && r.Forecast_Organisatie) return r.Forecast_Organisatie;
+  // Project organisatie heeft prioriteit, val terug op forecast organisatie
+  if (r.Project_Organisatie) return r.Project_Organisatie;
+  if (r.Forecast_Organisatie) return r.Forecast_Organisatie;
   return null;
 }
 
@@ -2738,15 +2738,19 @@ function openNieuwAboModal(guid) {
     <div style="background:#fff;border-radius:12px;padding:28px;width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.2);max-height:90vh;overflow-y:auto">
       <h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Nieuw abonnement aanmaken</h3>
       <p style="font-size:12px;color:var(--ts-muted);margin-bottom:20px">${r.VC_Nummer} — ${r.VC_Verkooprelatie}</p>
-      <div style="background:var(--ts-bg);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px">
+      <div style="background:var(--ts-bg);border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
           <div><span style="color:var(--ts-muted)">Itemcode:</span> <strong>${r.VCR_Itemcode}</strong></div>
           <div><span style="color:var(--ts-muted)">Cyclus:</span> <strong>${r.VCR_Frequentie}</strong></div>
           <div><span style="color:var(--ts-muted)">Aantal:</span> <strong>${r.VCR_Aantal}</strong></div>
           <div><span style="color:var(--ts-muted)">Prijs:</span> <strong>€${parseFloat(r.VCR_Eenheidsprijs).toFixed(2)}</strong></div>
-          <div><span style="color:var(--ts-muted)">Project:</span> <strong>${r.VC_Project||'—'}</strong></div>
-          <div><span style="color:var(--ts-muted)">Relatie:</span> <strong>${r.VC_Verkooprelatienr}</strong></div>
         </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;background:var(--ts-bg);border-radius:var(--border-radius-md);padding:10px;font-size:12px">
+        <div><span style="color:var(--ts-muted)">Artikelomschrijving:</span><br><strong>${r.VCR_Omschrijving||'—'}</strong></div>
+        <div><span style="color:var(--ts-muted)">Verkooprelatie:</span><br><strong>${r.VC_Verkooprelatie}</strong> <span style="color:var(--ts-muted);font-size:11px">(${r.VC_Verkooprelatienr})</span></div>
+        <div><span style="color:var(--ts-muted)">Organisatie:</span><br><strong>${vcrOrganisatie(r)||'—'}</strong></div>
+        <div><span style="color:var(--ts-muted)">Project:</span><br><strong>${r.VC_Project||'—'}</strong></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
         <div class="form-field"><label>Startdatum abonnement</label><input type="date" id="aboStartdatum" value="${new Date().toISOString().split('T')[0]}" /></div>
@@ -2758,6 +2762,7 @@ function openNieuwAboModal(guid) {
           </select>
         </div>
         <div class="form-field"><label>Afwijkende prijs (optioneel)</label><input type="number" id="aboAfwPrijs" step="0.01" placeholder="Leeg = basisprijs" /></div>
+        <div class="form-field" style="grid-column:1/-1"><label>Regelomschrijving (optioneel)</label><input type="text" id="aboRegelomschrijving" placeholder="Bijv. klantnaam of specifieke omschrijving" style="width:100%" /></div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('vcrModal').remove()">Annuleren</button>
@@ -2820,6 +2825,8 @@ async function maakNieuwAbonnement(guid) {
   const korting50 = document.getElementById('aboKorting50').value === 'ja';
   const afwPrijs = document.getElementById('aboAfwPrijs').value;
 
+  const regelomschrijving = document.getElementById('aboRegelomschrijving').value;
+
   const lineFields = {
     "VaIt": "2",
     "ItCd": r.VCR_Itemcode,
@@ -2829,6 +2836,7 @@ async function maakNieuwAbonnement(guid) {
   };
   if (afwPrijs) lineFields["Pric"] = parseFloat(afwPrijs);
   if (korting50) { lineFields["DcPr"] = 50; lineFields["IsPc"] = true; }
+  if (regelomschrijving) lineFields["U62872DFA07C24735AABDF3FC24D5DBC3"] = regelomschrijving;
 
   const body = {
     "FbSubscription": {
@@ -2857,6 +2865,8 @@ async function maakNieuwAbonnement(guid) {
       body: JSON.stringify(body)
     });
     if (res.ok || res.status === 201) {
+      // Vink verwerkt in abo aan op de voorcalculatieregel
+      await vinkVerwerktInAbo(guid);
       document.getElementById('vcrModal')?.remove();
       r.Verwerkt_in_Abo = true;
       applyVcrFilters();
@@ -2869,9 +2879,103 @@ async function maakNieuwAbonnement(guid) {
   } catch(e) { showToast('Fout: ' + e.message, 'error'); }
 }
 
+async function vinkVerwerktNacalc(guid) {
+  // TODO: vervang het custom veld ID zodra bekend
+  // Zelfde structuur als vinkVerwerktInAbo maar dan voor Overgenomen_naar_nacalculatie
+  // Voor nu alleen lokaal bijhouden
+  console.log('Overgenomen naar nacalculatie — vinkje nog in te stellen voor GUID:', guid);
+}
+
+async function vinkVerwerktInAbo(guid) {
+  const body = {
+    "KnQuotation": {
+      "Element": {
+        "Objects": [{
+          "KnQuotationLine": {
+            "Element": {
+              "Fields": {
+                "GuLi": guid,
+                "UB0419835A493434F957B2D914218FC94": true
+              }
+            }
+          }
+        }]
+      }
+    }
+  };
+  try {
+    const res = await fetch(`${AFAS_BASE}/connectors/KnQuotation`, {
+      method: 'POST',
+      headers: { 'Authorization': `AfasToken ${btoa(afasToken)}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (res.ok || res.status === 201) {
+      console.log('Verwerkt in abo aangevinkt voor', guid);
+    } else {
+      const err = await res.text();
+      console.warn('Vinkje zetten mislukt:', err);
+    }
+  } catch(e) { console.warn('Vinkje zetten mislukt:', e.message); }
+}
+
 async function maakNacalculatie(guid) {
-  showToast('Nacalculatie omzetting — connector nog te bepalen via AFAS metainfo', 'error');
-  // TODO: implement once we know the correct UpdateConnector for nacalculatie
+  const r = vcrData.find(x => x.VCR_GUID === guid);
+  if (!r) return;
+
+  const datum = document.getElementById('nacalcDatum').value;
+  const splits = parseInt(document.getElementById('nacalcSplits').value);
+  const korting50 = document.getElementById('nacalcKorting50').value === 'ja';
+  const afwPrijs = document.getElementById('nacalcAfwPrijs').value;
+
+  if (!datum) { showToast('Vul een datum in', 'error'); return; }
+  if (!r.VC_Project) { showToast('Geen project gekoppeld aan deze voorcalculatie', 'error'); return; }
+
+  const aantalPerRegel = splits > 1 ? 1 : parseFloat(r.VCR_Aantal);
+  const aantalRegels = splits > 1 ? parseInt(r.VCR_Aantal) : 1;
+
+  let ok = 0; let errors = 0;
+  for (let i = 0; i < aantalRegels; i++) {
+    const fields = {
+      "DaTi": datum,
+      "VaIt": "2",
+      "ItCd": r.VCR_Itemcode,
+      "Qu": aantalPerRegel,
+      "PrId": r.VC_Project,
+      "DbId": r.VC_Verkooprelatienr,
+      "BcId": r.VC_Verkooprelatienr,
+      "Ds": r.VCR_Omschrijving || r.VCR_Itemcode,
+      "Ch": r.VCR_Doorbelasten !== false
+    };
+    if (afwPrijs) fields["AmSe"] = parseFloat(afwPrijs);
+    else if (r.VCR_Eenheidsprijs) fields["AmSe"] = parseFloat(r.VCR_Eenheidsprijs);
+    if (korting50) fields["DcPr"] = 50;
+
+    const body = { "PtRealization": { "Element": { "Fields": fields } } };
+
+    try {
+      const res = await fetch(`${AFAS_BASE}/connectors/PtRealization`, {
+        method: 'POST',
+        headers: { 'Authorization': `AfasToken ${btoa(afasToken)}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (res.ok || res.status === 201) { ok++; }
+      else {
+        errors++;
+        const err = await res.text();
+        showToast(`Fout regel ${i+1}: ${err.substring(0,150)}`, 'error');
+      }
+    } catch(e) { errors++; showToast('Fout: ' + e.message, 'error'); }
+  }
+
+  if (ok > 0) {
+    // Vink overgenomen naar nacalculatie aan op de voorcalculatieregel
+    await vinkVerwerktNacalc(guid);
+    document.getElementById('vcrModal')?.remove();
+    r.Overgenomen_naar_nacalculatie = true;
+    applyVcrFilters();
+    updateVcrTbody();
+    showToast(`${ok} nacalculatieregel(s) aangemaakt voor ${r.VC_Verkooprelatie}`, 'success');
+  }
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────
