@@ -3057,8 +3057,8 @@ function exportFacturatie() {
     r.Regel_Omschrijving||''
   ]);
 
-  const csv = [header, ...rows].map(r => r.map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('
-');
+  const rows_arr = [header, ...rows].map(r => r.map(v => '"' + String(v||'').replace(/"/g, '""') + '"').join(','));
+  const csv = rows_arr.join('\r\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
