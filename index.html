@@ -429,7 +429,7 @@ async function renderDashboardContent(c) {
           <tbody>
             ${(() => {
               const cyclusMap = {};
-              const cyclusFactor = { 'M1':1, 'M3':3, 'J1':12, 'J2':24, 'J3':36, 'J5':60, 'W1':0.25, 'D7':0.23, 'I':0 };
+              const cyclusFactor = { 'M1':1, 'M3':3, 'J1':12, 'J2':24, 'J3':36, 'J5':60, 'W1':0.25, 'D7':0.23, 'I':0, 'UUR':1, 'KM':1, 'STK':1 };
               actieveRegels.forEach(r => {
                 const c = r.Basiseenheid || 'Overig';
                 if (!cyclusMap[c]) cyclusMap[c] = { regels:0, waarde:0 };
@@ -448,75 +448,94 @@ async function renderDashboardContent(c) {
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div class="card">
-        <div class="card-header"><h2>📅 Facturatie deze maand</h2><span style="font-size:11px;color:var(--ts-muted)">Peildatum: laatste dag huidige maand</span></div>
-        <div class="card-body" style="padding:0">
-          <table class="tbl">
-            <thead><tr><th>Cyclus</th><th>Regels</th><th>Te factureren</th></tr></thead>
-            <tbody>
-              ${(() => {
-                const nu = new Date();
-                const eindeMaandStr = nu.toISOString().split('T')[0]; // peildatum = vandaag
-                const facCyclus = { 'M1':[], 'M3':[], 'J1':[], 'J2':[], 'J3':[], 'J5':[], 'W1':[], 'D7':[] };
-                actieveRegels.forEach(r => {
-                  const cyclus = r.Basiseenheid || '';
-                  if (!facCyclus[cyclus]) return;
-                  const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
-                  const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
-                  const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
-                  const facVanaf = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
-                  // Moet gefactureerd worden als:
-                  // 1. gefactureerd_tm < laatste dag huidige maand (of nooit gefactureerd)
-                  // 2. geen einddatum of einddatum >= laatste dag huidige maand
-                  // 3. startdatum <= laatste dag huidige maand
-                  // 4. Factureren_vanaf (begindatum factuurcyclus) < laatste dag huidige maand
-                  //    (abo 117 case: factureren_vanaf = einddatum = niet meer te factureren)
-                  const moetFact = (!gefact || gefact < eindeMaandStr) &&
-                                   (!eind || eind >= eindeMaandStr) &&
-                                   (!start || start <= eindeMaandStr) &&
-                                   (!facVanaf || facVanaf < eindeMaandStr) &&
-                                   !(eind && facVanaf && eind <= facVanaf); // einddatum <= factureren_vanaf = nooit gefactureerd
-                  if (moetFact) facCyclus[cyclus].push(r);
-                });
-                const cyclusLabels = { 'M1':'Maand','M3':'Kwartaal','J1':'Jaar','J2':'2 Jaar','J3':'3 Jaar','J5':'5 Jaar','W1':'Week','D7':'7 Dagen' };
-                return Object.entries(facCyclus)
-                  .filter(([,regels]) => regels.length > 0)
-                  .map(([c, regels]) => {
-                    const waarde = regels.reduce((s,r) => s+(parseFloat(r.Waarde_abonnement)||0), 0);
-                    return `<tr><td><span class="badge badge-csv">${cyclusLabels[c]||c}</span></td><td>${regels.length}</td><td style="font-weight:500">€${Math.round(waarde).toLocaleString('nl')}</td></tr>`;
-                  }).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--ts-muted)">Niets te factureren</td></tr>';
-              })()}
-              ${(() => {
-                const nu = new Date();
-                const eindeMaandStr = nu.toISOString().split('T')[0]; // peildatum = vandaag
-                const totaal = actieveRegels.filter(r => {
-                  const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
-                  const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
-                  const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
-                  return (!gefact || gefact < eindeMaandStr) && (!eind || eind >= eindeMaandStr) && (!start || start <= eindeMaandStr);
-                }).reduce((s,r) => s+(parseFloat(r.Waarde_abonnement)||0), 0);
-                return `<tr style="border-top:2px solid var(--ts-border);font-weight:600"><td colspan="2">Totaal</td><td>€${Math.round(totaal).toLocaleString('nl')}</td></tr>`;
-              })()}
-            </tbody>
-          </table>
+        <div class="card-header">
+          <h2>📅 Facturatie vandaag</h2>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:11px;color:var(--ts-muted)">Peildatum: ${new Date().toISOString().split('T')[0]}</span>
+            <button class="btn btn-secondary btn-sm" onclick="exportFacturatie()">⬇ Export CSV</button>
+          </div>
         </div>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-      <div class="card">
-        <div class="card-header"><h2>Top producten — maandwaarde</h2></div>
         <div class="card-body" style="padding:0">
-          <table class="tbl">
-            <thead><tr><th>Itemcode</th><th>Klanten</th><th>Seats</th><th>Maandwaarde</th></tr></thead>
-            <tbody>
-              ${productRows.map(p => `<tr>
-                <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${p.itemcode}</code></td>
-                <td>${p.klanten.size}</td>
-                <td>${Math.round(p.aantal).toLocaleString('nl')}</td>
-                <td style="font-weight:500">€${Math.round(p.waarde).toLocaleString('nl')}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
+          ${(() => {
+            const peilDatum = new Date().toISOString().split('T')[0];
+            function moetFac(r) {
+              const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
+              const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
+              const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+              const fv = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
+              return (!gefact || gefact < peilDatum) &&
+                     (!eind || eind >= peilDatum) &&
+                     (!start || start <= peilDatum) &&
+                     (!fv || fv <= peilDatum) &&
+                     !(eind && fv && eind <= fv);
+            }
+            const facR = actieveRegels.filter(moetFac);
+            const maandR = facR.filter(r => r.Basiseenheid === 'M1');
+            const jaarR = facR.filter(r => ['J1','J2','J3','J5'].includes(r.Basiseenheid));
+            const anderR = facR.filter(r => !['M1','J1','J2','J3','J5'].includes(r.Basiseenheid));
+            const fmtE = v => v ? '€'+Math.round(v).toLocaleString('nl') : '—';
+            const totM = maandR.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
+            const totJ = jaarR.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
+            const totA = anderR.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
+            const totaal = facR.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
+            return `<table class="tbl">
+              <thead><tr><th>Cyclus</th><th>Regels</th><th>Te factureren</th></tr></thead>
+              <tbody>
+                ${maandR.length>0?`<tr><td><span class="badge badge-csv">Maand (M1)</span></td><td>${maandR.length}</td><td style="font-weight:500">${fmtE(totM)}</td></tr>`:''}
+                ${jaarR.length>0?`<tr><td><span class="badge badge-csv">Jaar (J1/J2/J3/J5)</span></td><td>${jaarR.length}</td><td style="font-weight:500">${fmtE(totJ)}</td></tr>`:''}
+                ${anderR.length>0?`<tr><td><span class="badge badge-csv">Overig</span></td><td>${anderR.length}</td><td style="font-weight:500">${fmtE(totA)}</td></tr>`:''}
+                <tr style="border-top:2px solid var(--ts-border);font-weight:600"><td colspan="2">Totaal</td><td>${fmtE(totaal)}</td></tr>
+              </tbody>
+            </table>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--ts-border)">
+              <div style="border-right:1px solid var(--ts-border)">
+                <div style="padding:10px 12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--ts-border)">Per klant</div>
+                <div style="max-height:240px;overflow-y:auto">
+                  <table class="tbl">
+                    <thead><tr><th>Klant</th><th>Maand</th><th>Jaar</th><th>Totaal</th></tr></thead>
+                    <tbody>${(() => {
+                      const pk = {};
+                      facR.forEach(r => {
+                        const k = r.Naam||r.OrganisatieId;
+                        if (!pk[k]) pk[k] = {naam:k,m:0,j:0,t:0};
+                        const w = parseFloat(r.Waarde_abonnement)||0;
+                        pk[k].t += w;
+                        if (r.Basiseenheid==='M1') pk[k].m += w;
+                        else if (['J1','J2','J3','J5'].includes(r.Basiseenheid)) pk[k].j += w;
+                      });
+                      return Object.values(pk).sort((a,b)=>b.t-a.t).map(k =>
+                        `<tr><td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${k.naam}">${k.naam}</td><td>${k.m?fmtE(k.m):'—'}</td><td>${k.j?fmtE(k.j):'—'}</td><td style="font-weight:500">${fmtE(k.t)}</td></tr>`
+                      ).join('');
+                    })()}</tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <div style="padding:10px 12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--ts-border)">Per product</div>
+                <div style="max-height:240px;overflow-y:auto">
+                  <table class="tbl">
+                    <thead><tr><th>Itemcode</th><th>Maand</th><th>Jaar</th><th>Totaal</th></tr></thead>
+                    <tbody>${(() => {
+                      const pp = {};
+                      facR.forEach(r => {
+                        const k = r.Itemcode||'—';
+                        if (!pp[k]) pp[k] = {code:k,m:0,j:0,t:0};
+                        const w = parseFloat(r.Waarde_abonnement)||0;
+                        pp[k].t += w;
+                        if (r.Basiseenheid==='M1') pp[k].m += w;
+                        else if (['J1','J2','J3','J5'].includes(r.Basiseenheid)) pp[k].j += w;
+                      });
+                      return Object.values(pp).sort((a,b)=>b.t-a.t).map(p =>
+                        `<tr><td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${p.code}</code></td><td>${p.m?fmtE(p.m):'—'}</td><td>${p.j?fmtE(p.j):'—'}</td><td style="font-weight:500">${fmtE(p.t)}</td></tr>`
+                      ).join('');
+                    })()}</tbody>
+                  </table>
+                </div>
+              </div>
+            </div>`;
+          })()}
         </div>
+      </div></div>
       </div>
 
       <div class="card">
@@ -3010,6 +3029,42 @@ async function maakNacalculatie(guid) {
     updateVcrTbody();
     showToast(`${ok} nacalculatieregel(s) aangemaakt voor ${r.VC_Verkooprelatie}`, 'success');
   }
+}
+
+// ── Export facturatie ────────────────────────────────────────────────────────
+function exportFacturatie() {
+  const nu = new Date();
+  const peilDatum = nu.toISOString().split('T')[0];
+
+  function moetFactureren(r) {
+    const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
+    const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
+    const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+    const facVanaf = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
+    return (!gefact || gefact < peilDatum) &&
+           (!eind || eind >= peilDatum) &&
+           (!start || start <= peilDatum) &&
+           (!facVanaf || facVanaf <= peilDatum) &&
+           !(eind && facVanaf && eind <= facVanaf);
+  }
+
+  const facRegels = alleRegels.filter(isRegelActief).filter(moetFactureren);
+  const header = ['Regelnummer','Abo nr','Klant','Itemcode','Cyclus','Aantal','Prijs','Korting%','Regelwaarde','Gefact. t/m','Regelomschrijving'];
+  const rows = facRegels.map(r => [
+    r.Regelnummer, r.Nummer_abonnement, r.Naam, r.Itemcode, r.Basiseenheid,
+    r.Aantal, r.Afwijkende_prijs||r.Originele_prijs||'', r.Kortingspercentage||'',
+    r.Waarde_abonnement||'', r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : '',
+    r.Regel_Omschrijving||''
+  ]);
+
+  const csv = [header, ...rows].map(r => r.map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('
+');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `facturatie_${peilDatum}.csv`;
+  a.click();
+  showToast(`${facRegels.length} regels geëxporteerd`, 'success');
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────
