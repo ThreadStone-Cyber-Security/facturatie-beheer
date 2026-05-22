@@ -378,14 +378,13 @@ async function laadDashboard() {
 
 async function renderDashboardContent(c) {
   const regels = alleRegels;
-  const heeftData = regels.length > 0;
-  if (!heeftData) return;
+  if (!regels.length) return;
 
   // Compute stats
+  const actieveRegels = regels.filter(isRegelActief);
   const totaalRegels = regels.length;
   const uniekeKlanten = new Set(actieveRegels.map(r => r.OrganisatieId)).size;
   const totaalAantal = actieveRegels.reduce((s, r) => s + (parseFloat(r.Aantal) || 0), 0);
-  const actieveRegels = regels.filter(isRegelActief);
   const totaalWaarde = actieveRegels.reduce((s, r) => s + (parseFloat(r.Waarde_abonnement) || 0), 0);
 
   // Per product totalen
