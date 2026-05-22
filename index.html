@@ -2520,9 +2520,9 @@ function vcrStatus(r) {
 }
 
 function vcrOrganisatie(r) {
-  // Project organisatie heeft prioriteit, val terug op forecast organisatie
   if (r.Project_Organisatie) return r.Project_Organisatie;
   if (r.Forecast_Organisatie) return r.Forecast_Organisatie;
+  if (r.Eindklant) return r.Eindklant;
   return null;
 }
 
