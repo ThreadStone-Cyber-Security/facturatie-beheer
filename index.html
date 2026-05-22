@@ -343,22 +343,43 @@ function showTab(tab) {
 // ── Dashboard ────────────────────────────────────────────────────────────────
 async function renderDashboard() {
   const c = document.getElementById('mainContent');
-  c.innerHTML = '<div class="loader"><div class="spinner"></div> Dashboard laden...</div>';
 
-  // Use cached regels if available, otherwise show prompt
-  const regels = alleRegels;
-  const heeftData = regels.length > 0;
+  // Add token input to topActions
+  document.getElementById('topActions').innerHTML = `
+    <input type="password" id="afasTokenDashInput" placeholder="AFAS token" value="${afasTokenRegels||afasToken}"
+      style="font-size:12px;padding:5px 10px;border:1px solid var(--ts-border);border-radius:var(--radius);width:220px"
+      oninput="afasTokenRegels=this.value;afasToken=this.value" />
+    <button class="btn btn-primary btn-sm" onclick="laadDashboard()">↻ Laden</button>`;
 
-  if (!heeftData) {
+  if (alleRegels.length === 0) {
     c.innerHTML = `
       <div class="card" style="text-align:center;padding:40px">
         <div style="font-size:32px;margin-bottom:12px">📊</div>
-        <div style="font-weight:600;font-size:15px;margin-bottom:8px">Laad eerst de abonnementsregels</div>
-        <div style="color:var(--ts-muted);font-size:13px;margin-bottom:20px">Ga naar Abonnementsregels, vul het AFAS token in en klik Laden. Dan verschijnt hier het dashboard.</div>
-        <button class="btn btn-primary" onclick="showTab('regels')">→ Naar abonnementsregels</button>
+        <div style="font-weight:600;font-size:15px;margin-bottom:8px">Vul het AFAS token in en klik Laden</div>
+        <div style="color:var(--ts-muted);font-size:13px;margin-bottom:20px">Het dashboard toont de facturatie voor vandaag en een overzicht van actieve abonnementen.</div>
       </div>`;
     return;
   }
+
+  renderDashboardContent(c);
+}
+
+async function laadDashboard() {
+  afasToken = document.getElementById('afasTokenDashInput')?.value || afasToken;
+  afasTokenRegels = afasToken;
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<div class="loader"><div class="spinner"></div> Abonnementsregels laden...</div>';
+  try {
+    alleRegels = await afasGet('PowerP_Abonnementregels');
+    renderDashboardContent(c);
+    showToast(`${alleRegels.length} regels geladen`, 'success');
+  } catch(e) { c.innerHTML = `<div class="empty-state">Fout: ${e.message}</div>`; }
+}
+
+async function renderDashboardContent(c) {
+  const regels = alleRegels;
+  const heeftData = regels.length > 0;
+  if (!heeftData) return;
 
   // Compute stats
   const totaalRegels = regels.length;
@@ -435,8 +456,7 @@ async function renderDashboard() {
             <tbody>
               ${(() => {
                 const nu = new Date();
-                const eindeMaand = new Date(nu.getFullYear(), nu.getMonth()+1, 0);
-                const eindeMaandStr = eindeMaand.toISOString().split('T')[0];
+                const eindeMaandStr = nu.toISOString().split('T')[0]; // peildatum = vandaag
                 const facCyclus = { 'M1':[], 'M3':[], 'J1':[], 'J2':[], 'J3':[], 'J5':[], 'W1':[], 'D7':[] };
                 actieveRegels.forEach(r => {
                   const cyclus = r.Basiseenheid || '';
@@ -468,8 +488,7 @@ async function renderDashboard() {
               })()}
               ${(() => {
                 const nu = new Date();
-                const eindeMaand = new Date(nu.getFullYear(), nu.getMonth()+1, 0);
-                const eindeMaandStr = eindeMaand.toISOString().split('T')[0];
+                const eindeMaandStr = nu.toISOString().split('T')[0]; // peildatum = vandaag
                 const totaal = actieveRegels.filter(r => {
                   const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
                   const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
