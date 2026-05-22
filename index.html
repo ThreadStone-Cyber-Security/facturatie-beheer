@@ -1445,6 +1445,7 @@ async function renderRegels() {
     <input type="password" id="afasTokenRegelsInput" placeholder="AFAS token" value="${afasTokenRegels}"
       style="font-size:12px;padding:5px 10px;border:1px solid var(--ts-border);border-radius:var(--radius);width:220px"
       oninput="afasTokenRegels=this.value" />
+    <button class="btn btn-secondary btn-sm" onclick="exportRegels()">⬇ Export CSV</button>
     <button class="btn btn-primary btn-sm" onclick="laadRegels()">↻ Laden</button>`;
 
   if (alleRegels.length === 0) {
