@@ -457,34 +457,60 @@ async function renderDashboardContent(c) {
         </div>
         <div class="card-body" style="padding:0">
           ${(() => {
-            const peilDatum = new Date().toISOString().split('T')[0];
-            function moetFac(r) {
-              const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
-              const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
-              const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
-              const fv = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
-              return (!gefact || gefact < peilDatum) &&
-                     (!eind || eind >= peilDatum) &&
-                     (!start || start <= peilDatum) &&
-                     (!fv || fv <= peilDatum) &&
-                     !(eind && fv && eind <= fv);
+            const nu = new Date();
+            const peilDatum = nu.toISOString().split('T')[0];
+
+            // Vorige periode = zelfde dag maar -1 maand
+            const vorigeNu = new Date(nu.getFullYear(), nu.getMonth() - 1, nu.getDate());
+            const vorigePeil = vorigeNu.toISOString().split('T')[0];
+
+            function moetFac(peil) {
+              return function(r) {
+                const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
+                const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
+                const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+                const fv = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
+                return (!gefact || gefact < peil) &&
+                       (!eind || eind >= peil) &&
+                       (!start || start <= peil) &&
+                       (!fv || fv <= peil) &&
+                       !(eind && fv && eind <= fv);
+              };
             }
-            const facR = actieveRegels.filter(moetFac);
+
+            const facR = actieveRegels.filter(moetFac(peilDatum));
+            const facRVorig = alleRegels.filter(isRegelActief).filter(moetFac(vorigePeil));
+
             const maandR = facR.filter(r => r.Basiseenheid === 'M1');
             const jaarR = facR.filter(r => ['J1','J2','J3','J5'].includes(r.Basiseenheid));
             const anderR = facR.filter(r => !['M1','J1','J2','J3','J5'].includes(r.Basiseenheid));
+
             const fmtE = v => v ? '€'+Math.round(v).toLocaleString('nl') : '—';
+            const fmtDiff = (huidig, vorig) => {
+              const diff = huidig - vorig;
+              if (Math.abs(diff) < 1) return '';
+              const kleur = diff >= 0 ? 'var(--ts-success)' : 'var(--ts-danger)';
+              const teken = diff >= 0 ? '+' : '';
+              return '<span style="font-size:11px;color:'+kleur+';margin-left:6px">'+teken+'€'+Math.round(diff).toLocaleString('nl')+'</span>';
+            };
+
             const totM = maandR.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
             const totJ = jaarR.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
             const totA = anderR.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
             const totaal = facR.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
+
+            const maandRV = facRVorig.filter(r => r.Basiseenheid === 'M1');
+            const jaarRV = facRVorig.filter(r => ['J1','J2','J3','J5'].includes(r.Basiseenheid));
+            const totMV = maandRV.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
+            const totJV = jaarRV.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
+            const totaalV = facRVorig.reduce((s,r)=>s+(parseFloat(r.Waarde_abonnement)||0),0);
             return `<table class="tbl">
-              <thead><tr><th>Cyclus</th><th>Regels</th><th>Te factureren</th></tr></thead>
+              <thead><tr><th>Cyclus</th><th>Regels</th><th>Te factureren</th><th style="color:var(--ts-muted);font-size:11px">vs. vorige periode (${vorigePeil})</th></tr></thead>
               <tbody>
-                ${maandR.length>0?`<tr><td><span class="badge badge-csv">Maand (M1)</span></td><td>${maandR.length}</td><td style="font-weight:500">${fmtE(totM)}</td></tr>`:''}
-                ${jaarR.length>0?`<tr><td><span class="badge badge-csv">Jaar (J1/J2/J3/J5)</span></td><td>${jaarR.length}</td><td style="font-weight:500">${fmtE(totJ)}</td></tr>`:''}
-                ${anderR.length>0?`<tr><td><span class="badge badge-csv">Overig</span></td><td>${anderR.length}</td><td style="font-weight:500">${fmtE(totA)}</td></tr>`:''}
-                <tr style="border-top:2px solid var(--ts-border);font-weight:600"><td colspan="2">Totaal</td><td>${fmtE(totaal)}</td></tr>
+                ${maandR.length>0?`<tr><td><span class="badge badge-csv">Maand (M1)</span></td><td>${maandR.length}</td><td style="font-weight:500">${fmtE(totM)}</td><td>${fmtDiff(totM,totMV)}</td></tr>`:''}
+                ${jaarR.length>0?`<tr><td><span class="badge badge-csv">Jaar (J1/J2/J3/J5)</span></td><td>${jaarR.length}</td><td style="font-weight:500">${fmtE(totJ)}</td><td>${fmtDiff(totJ,totJV)}</td></tr>`:''}
+                ${anderR.length>0?`<tr><td><span class="badge badge-csv">Overig</span></td><td>${anderR.length}</td><td style="font-weight:500">${fmtE(totA)}</td><td>—</td></tr>`:''}
+                <tr style="border-top:2px solid var(--ts-border);font-weight:600"><td colspan="2">Totaal</td><td>${fmtE(totaal)}</td><td>${fmtDiff(totaal,totaalV)}</td></tr>
               </tbody>
             </table>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--ts-border)">
@@ -3035,27 +3061,47 @@ async function maakNacalculatie(guid) {
 function exportFacturatie() {
   const nu = new Date();
   const peilDatum = nu.toISOString().split('T')[0];
+  const vorigeNu = new Date(nu.getFullYear(), nu.getMonth() - 1, nu.getDate());
+  const vorigePeil = vorigeNu.toISOString().split('T')[0];
 
-  function moetFactureren(r) {
-    const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
-    const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
-    const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
-    const facVanaf = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
-    return (!gefact || gefact < peilDatum) &&
-           (!eind || eind >= peilDatum) &&
-           (!start || start <= peilDatum) &&
-           (!facVanaf || facVanaf <= peilDatum) &&
-           !(eind && facVanaf && eind <= facVanaf);
+  function moetFacPeil(peil) {
+    return function(r) {
+      const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
+      const start = r.Begindatum ? r.Begindatum.substring(0,10) : null;
+      const eind = r.Einddatum ? r.Einddatum.substring(0,10) : null;
+      const facVanaf = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
+      return (!gefact || gefact < peil) &&
+             (!eind || eind >= peil) &&
+             (!start || start <= peil) &&
+             (!facVanaf || facVanaf <= peil) &&
+             !(eind && facVanaf && eind <= facVanaf);
+    };
   }
 
-  const facRegels = alleRegels.filter(isRegelActief).filter(moetFactureren);
-  const header = ['Regelnummer','Abo nr','Klant','Itemcode','Cyclus','Aantal','Prijs','Korting%','Regelwaarde','Gefact. t/m','Regelomschrijving'];
-  const rows = facRegels.map(r => [
-    r.Regelnummer, r.Nummer_abonnement, r.Naam, r.Itemcode, r.Basiseenheid,
-    r.Aantal, r.Afwijkende_prijs||r.Originele_prijs||'', r.Kortingspercentage||'',
-    r.Waarde_abonnement||'', r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : '',
-    r.Regel_Omschrijving||''
-  ]);
+  const actief = alleRegels.filter(isRegelActief);
+  const facRegels = actief.filter(moetFacPeil(peilDatum));
+  const facVorig = actief.filter(moetFacPeil(vorigePeil));
+
+  // Build lookup: regelwaarde vorige periode per regelnummer
+  const vorigMap = {};
+  facVorig.forEach(r => { vorigMap[r.Regelnummer] = parseFloat(r.Waarde_abonnement)||0; });
+
+  const header = ['Regelnummer','Abo nr','Klant','Itemcode','Cyclus','Aantal','Prijs','Korting%',
+    'Regelwaarde huidig','Regelwaarde vorige periode ('+vorigePeil+')','Verschil',
+    'Gefact. t/m','Regelomschrijving'];
+  const rows = facRegels.map(r => {
+    const huidig = parseFloat(r.Waarde_abonnement)||0;
+    const vorig = vorigMap[r.Regelnummer] || 0;
+    const verschil = huidig - vorig;
+    return [
+      r.Regelnummer, r.Nummer_abonnement, r.Naam, r.Itemcode, r.Basiseenheid,
+      r.Aantal, r.Afwijkende_prijs||r.Originele_prijs||'', r.Kortingspercentage||'',
+      huidig.toFixed(2), vorig ? vorig.toFixed(2) : '',
+      verschil !== 0 ? (verschil > 0 ? '+' : '') + verschil.toFixed(2) : '',
+      r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : '',
+      r.Regel_Omschrijving||''
+    ];
+  });
 
   const rows_arr = [header, ...rows].map(r => r.map(v => '"' + String(v||'').replace(/"/g, '""') + '"').join(','));
   const csv = rows_arr.join('\r\n');
