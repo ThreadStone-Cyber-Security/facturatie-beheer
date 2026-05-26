@@ -206,10 +206,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
         Abonnementsregels
       </div>
-      <div class="nav-item" onclick="showTab('korting')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7h.01M17 17h.01M3 12a9 9 0 1018 0 9 9 0 00-18 0zM7.5 7.5l9 9"/></svg>
-        Korting Techone
-      </div>
+
       <div class="nav-item" onclick="showTab('voorcalculaties')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         Voorcalculaties
@@ -325,8 +322,8 @@ async function loadProducenten() {
 // ── Tab routing ──────────────────────────────────────────────────────────────
 function showTab(tab) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.querySelectorAll('.nav-item')[['dashboard','abonnementen','regels','korting','voorcalculaties','sync'].indexOf(tab)]?.classList.add('active');
-  const titles = { dashboard: 'Dashboard', abonnementen: 'Abonnementen', regels: 'Abonnementsregels', korting: 'Korting Techone', voorcalculaties: 'Voorcalculaties', sync: 'AFAS Sync' };
+  document.querySelectorAll('.nav-item')[['dashboard','abonnementen','regels','voorcalculaties','sync'].indexOf(tab)]?.classList.add('active');
+  const titles = { dashboard: 'Dashboard', abonnementen: 'Abonnementen', regels: 'Abonnementsregels', voorcalculaties: 'Voorcalculaties', sync: 'AFAS Sync' };
   document.getElementById('pageTitle').textContent = titles[tab];
   document.getElementById('topActions').innerHTML = '';
   if (tab === 'dashboard') renderDashboard();
@@ -335,7 +332,6 @@ function showTab(tab) {
   else if (tab === 'producten') renderProducten();
   else if (tab === 'abonnementen') renderAbonnementen();
   else if (tab === 'regels') renderRegels();
-  else if (tab === 'korting') renderKorting();
   else if (tab === 'voorcalculaties') renderVoorcalculaties();
   else if (tab === 'sync') renderSync();
 }
@@ -1432,6 +1428,29 @@ async function startSync() {
 // ── Abonnementsregels ────────────────────────────────────────────────────────
 let alleRegels = [];
 let prijslijstMap = {}; // VerkoopRelID -> Prijslijst
+let activeSubtab = 'alle';
+
+const SUBTAB_DEFS = [
+  { id: 'alle',    label: 'Alle',               filter: r => true },
+  { id: 'soc',     label: 'SOC diensten',        filter: r => matchTermen(r, ['ESET','Thread Defense','TD-365','TD-Ultimate','TD-Advanced']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'vuln',    label: 'Vulnerability Mgmt',  filter: r => matchTermen(r, ['Vuln-mgmt','Vulnerability']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'scan',    label: 'Threadscan',          filter: r => matchTermen(r, ['TS-IP','TS-WEB','TS-IPWEB','Threadscan']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'kb4',     label: 'Knowbe4',             filter: r => matchTermen(r, ['Knowbe4','knowbe4','KnowBe4']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'nis2',    label: 'NIS2',                filter: r => matchTermen(r, ['NIS2','NIS-2']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'pwrby',   label: 'Powered By',          filter: r => r.Type_abonnement === 'Powered by' },
+  { id: 'overig',  label: 'Overig',              filter: r => isOverig(r) },
+];
+
+function matchTermen(r, termen) {
+  const haystack = ((r.Itemcode||'') + ' ' + (r.Omschrijving||'') + ' ' + (r.Regel_Omschrijving||'')).toLowerCase();
+  return termen.some(t => haystack.includes(t.toLowerCase()));
+}
+
+function isOverig(r) {
+  if (r.Type_abonnement === 'Powered by') return false;
+  const subtabs = SUBTAB_DEFS.filter(s => s.id !== 'alle' && s.id !== 'overig');
+  return !subtabs.some(s => s.filter(r));
+}
 let gefilterdRegels = [];
 let regelsSortField = 'Regelnummer';
 let regelsSortDir = 1;
@@ -1480,7 +1499,20 @@ function renderRegelsTable(c) {
   applyRegelFilters();
   const uniqueTypes = [...new Set(alleRegels.map(r => r.Type_abonnement).filter(Boolean))].sort();
 
+  // Apply subtab filter to alleRegels before applying user filters
+  const subtabDef = SUBTAB_DEFS.find(s => s.id === activeSubtab) || SUBTAB_DEFS[0];
+
   c.innerHTML = `
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;border-bottom:1px solid var(--ts-border);padding-bottom:8px">
+      ${SUBTAB_DEFS.map(s => {
+        const count = alleRegels.filter(isRegelActief).filter(s.filter).length;
+        return `<button class="btn btn-sm ${activeSubtab===s.id?'btn-primary':'btn-secondary'}"
+          onclick="activeSubtab='${s.id}';renderRegelsTable(document.getElementById('mainContent'))"
+          style="font-size:12px;padding:4px 10px">
+          ${s.label} <span style="opacity:0.7;font-size:10px">(${count})</span>
+        </button>`;
+      }).join('')}
+    </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div style="font-size:13px;color:var(--ts-muted)">Selecteer regels voor bulk acties</div>
       <div style="display:flex;gap:8px">
@@ -1536,7 +1568,8 @@ function renderRegelsTable(c) {
 }
 
 function applyRegelFilters() {
-  gefilterdRegels = alleRegels.filter(r => {
+  const subtabDef = SUBTAB_DEFS.find(s => s.id === activeSubtab) || SUBTAB_DEFS[0];
+  gefilterdRegels = alleRegels.filter(subtabDef.filter).filter(r => {
     if (regelFilters.klant && !r.Naam?.toLowerCase().includes(regelFilters.klant.toLowerCase())) return false;
     if (regelFilters.product && !r.Itemcode?.toLowerCase().includes(regelFilters.product.toLowerCase()) && !r.Omschrijving?.toLowerCase().includes(regelFilters.product.toLowerCase())) return false;
     if (regelFilters.type && r.Type_abonnement !== regelFilters.type) return false;
