@@ -2677,14 +2677,14 @@ function isVcrGoedgekeurd(r) {
 }
 
 function isVcrOpen(r) {
-  if (isVcrAbonnement(r)) return !r.Verwerkt_in_Abo;
-  return !r.Overgenomen_naar_nacalculatie;
+  // Beide types gebruiken nu hetzelfde veld 'Verwerkt'
+  return !r.Verwerkt_in_Abo;
 }
 
 function vcrStatus(r) {
   // Bepaal de verwerkingsstatus van een regel
   const goedgekeurd = isVcrGoedgekeurd(r);
-  const verwerkt = isVcrAbonnement(r) ? r.Verwerkt_in_Abo : r.Overgenomen_naar_nacalculatie;
+  const verwerkt = r.Verwerkt_in_Abo;
   if (verwerkt) return 'verwerkt';
   if (!goedgekeurd) return 'onderhanden'; // VC niet goedgekeurd
   if (!r.VC_Project) return 'geen_project'; // Goedgekeurd maar geen project
@@ -2846,7 +2846,7 @@ function renderVcrRows() {
   const fmtEur = v => v ? '€'+parseFloat(v).toFixed(2) : '—';
 
   return vcrGefilterd.map(r => {
-    const verwerkt = vcrView === 'abonnement' ? r.Verwerkt_in_Abo : r.Overgenomen_naar_nacalculatie;
+    const verwerkt = r.Verwerkt_in_Abo;
     const status = vcrStatus(r);
     const statusLabel = status === 'verwerkt'
       ? `<span style="color:var(--ts-success);font-size:12px">✓ Verwerkt</span>`
@@ -3056,10 +3056,8 @@ async function maakNieuwAbonnement(guid) {
 }
 
 async function vinkVerwerktNacalc(guid) {
-  // TODO: vervang het custom veld ID zodra bekend
-  // Zelfde structuur als vinkVerwerktInAbo maar dan voor Overgenomen_naar_nacalculatie
-  // Voor nu alleen lokaal bijhouden
-  console.log('Overgenomen naar nacalculatie — vinkje nog in te stellen voor GUID:', guid);
+  // Zelfde veld als vinkVerwerktInAbo — UB0419835A493434F957B2D914218FC94 = 'Verwerkt'
+  await vinkVerwerktInAbo(guid);
 }
 
 async function vinkVerwerktInAbo(guid) {
@@ -3148,7 +3146,7 @@ async function maakNacalculatie(guid) {
     // Vink overgenomen naar nacalculatie aan op de voorcalculatieregel
     await vinkVerwerktNacalc(guid);
     document.getElementById('vcrModal')?.remove();
-    r.Overgenomen_naar_nacalculatie = true;
+    r.Verwerkt_in_Abo = true;
     applyVcrFilters();
     updateVcrTbody();
     showToast(`${ok} nacalculatieregel(s) aangemaakt voor ${r.VC_Verkooprelatie}`, 'success');
