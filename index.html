@@ -1063,22 +1063,33 @@ function renderStep2(c) {
 
 let ignoredRows = new Set();
 
-function isRegelActief(r) {
-  if (!r.Einddatum) return true;
+function regelStatus(r) {
+  // Returns: 'actief' | 'opgezegd' | 'inactief'
+  if (!r.Einddatum) return 'actief';
   const eind = r.Einddatum.substring(0,10);
   const gefact = r.Gefactureerd_tm ? r.Gefactureerd_tm.substring(0,10) : null;
   const facVanaf = r.Factureren_vanaf ? r.Factureren_vanaf.substring(0,10) : null;
 
-  // Niet actief als factureren_vanaf >= einddatum (nooit gefactureerd, direct beëindigd)
-  if (facVanaf && eind && facVanaf >= eind) return false;
+  // Nooit gefactureerd en einddatum <= factureren_vanaf
+  if (facVanaf && eind && facVanaf >= eind) return 'inactief';
 
-  // Actief als einddatum in de toekomst ligt (na vandaag)
+  // Opgezegd: einddatum == gefactureerd_tm (volledig gefactureerd t/m einddatum)
+  if (gefact && eind === gefact) return 'opgezegd';
+
+  // Actief als einddatum in de toekomst ligt
   const vandaag = new Date().toISOString().split('T')[0];
-  if (eind > vandaag) return true;
+  if (eind > vandaag) return 'actief';
 
-  // Actief als einddatum na gefactureerd_tm (nog niet volledig gefactureerd)
-  if (!gefact) return true;
-  return eind > gefact;
+  // Actief als einddatum na gefactureerd_tm
+  if (!gefact) return 'actief';
+  if (eind > gefact) return 'actief';
+
+  return 'inactief';
+}
+
+function isRegelActief(r) {
+  const s = regelStatus(r);
+  return s === 'actief' || s === 'opgezegd';
 }
 
 function isKortingsregelOk(kortingRegel, hoofdRegels) {
@@ -1431,14 +1442,16 @@ let prijslijstMap = {}; // VerkoopRelID -> Prijslijst
 let activeSubtab = 'alle';
 
 const SUBTAB_DEFS = [
-  { id: 'alle',    label: 'Alle',               filter: r => true },
-  { id: 'soc',     label: 'SOC diensten',        filter: r => matchTermen(r, ['ESET','Thread Defense','TD-365','TD-Ultimate','TD-Advanced']) && r.Type_abonnement !== 'Powered by' },
-  { id: 'vuln',    label: 'Vulnerability Mgmt',  filter: r => matchTermen(r, ['Vuln-mgmt','Vulnerability']) && r.Type_abonnement !== 'Powered by' },
-  { id: 'scan',    label: 'Threadscan',          filter: r => matchTermen(r, ['TS-IP','TS-WEB','TS-IPWEB','Threadscan']) && r.Type_abonnement !== 'Powered by' },
-  { id: 'kb4',     label: 'Knowbe4',             filter: r => matchTermen(r, ['Knowbe4','knowbe4','KnowBe4']) && r.Type_abonnement !== 'Powered by' },
-  { id: 'nis2',    label: 'NIS2',                filter: r => matchTermen(r, ['NIS2','NIS-2']) && r.Type_abonnement !== 'Powered by' },
-  { id: 'pwrby',   label: 'Powered By',          filter: r => r.Type_abonnement === 'Powered by' },
-  { id: 'overig',  label: 'Overig',              filter: r => isOverig(r) },
+  { id: 'alle',       label: 'Alle',                filter: r => true },
+  { id: 'soc',        label: 'SOC diensten',         filter: r => matchTermen(r, ['ESET','Thread Defense','TD-365','TD-Ultimate','TD-Advanced']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'vuln',       label: 'Vulnerability Mgmt',   filter: r => matchTermen(r, ['Vuln-mgmt','Vulnerability','SERV-NES-R']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'scan',       label: 'Threadscan',           filter: r => matchTermen(r, ['TS-IP','TS-WEB','TS-IPWEB','Threadscan']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'elearning',  label: 'E-learning',           filter: r => matchTermen(r, ['Knowbe4','knowbe4','KnowBe4','Phish','phish','Awaretrain','awaretrain']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'nis2',       label: 'NIS2',                 filter: r => matchTermen(r, ['NIS2','NIS-2']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'compliance', label: 'Compliance',           filter: r => matchTermen(r, ['SecurityOfficer','CISO']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'korting',    label: 'Korting',              filter: r => matchTermen(r, ['KORT','Korting']) },
+  { id: 'pwrby',      label: 'Powered By',           filter: r => r.Type_abonnement === 'Powered by' },
+  { id: 'overig',     label: 'Overig',               filter: r => isOverig(r) },
 ];
 
 function matchTermen(r, termen) {
@@ -1448,7 +1461,7 @@ function matchTermen(r, termen) {
 
 function isOverig(r) {
   if (r.Type_abonnement === 'Powered by') return false;
-  const subtabs = SUBTAB_DEFS.filter(s => s.id !== 'alle' && s.id !== 'overig');
+  const subtabs = SUBTAB_DEFS.filter(s => s.id !== 'alle' && s.id !== 'overig' && s.id !== 'korting');
   return !subtabs.some(s => s.filter(r));
 }
 let gefilterdRegels = [];
@@ -1534,6 +1547,8 @@ function renderRegelsTable(c) {
       <input placeholder="🔍 Regelomschrijving" value="${regelFilters.omschrijving||''}" oninput="regelFilters.omschrijving=this.value;applyRegelFilters();updateRegelstbody()" style="min-width:160px;flex:1" />
       <select onchange="regelFilters.status=this.value;applyRegelFilters();updateRegelstbody()">
         <option value="actief" ${regelFilters.status==='actief'?'selected':''}>Alleen actief</option>
+        <option value="opgezegd" ${regelFilters.status==='opgezegd'?'selected':''}>Opgezegd</option>
+        <option value="actief_opgezegd" ${regelFilters.status==='actief_opgezegd'?'selected':''}>Actief + Opgezegd</option>
         <option value="inactief" ${regelFilters.status==='inactief'?'selected':''}>Alleen inactief</option>
         <option value="alle" ${regelFilters.status==='alle'?'selected':''}>Alle regels</option>
       </select>
@@ -1576,8 +1591,11 @@ function applyRegelFilters() {
     if (regelFilters.abonNr && String(r.Nummer_abonnement) !== regelFilters.abonNr) return false;
     if (regelFilters.regelNr && !String(r.Regelnummer).includes(regelFilters.regelNr)) return false;
     if (regelFilters.omschrijving && !r.Regel_Omschrijving?.toLowerCase().includes(regelFilters.omschrijving.toLowerCase())) return false;
-    if (regelFilters.status === 'actief' && !isRegelActief(r)) return false;
-    if (regelFilters.status === 'inactief' && isRegelActief(r)) return false;
+    const rs = regelStatus(r);
+    if (regelFilters.status === 'actief' && rs !== 'actief') return false;
+    if (regelFilters.status === 'opgezegd' && rs !== 'opgezegd') return false;
+    if (regelFilters.status === 'actief_opgezegd' && rs === 'inactief') return false;
+    if (regelFilters.status === 'inactief' && rs !== 'inactief') return false;
     if (regelFilters.prijslijst) {
       const pl = prijslijstMap[r.OrganisatieId] || null;
       if (regelFilters.prijslijst === '__geen__' && pl) return false;
@@ -1645,7 +1663,7 @@ function renderRegelRows() {
       <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.Itemcode||'—'}</code></td>
       <td style="font-size:11px;color:var(--ts-muted)">${r.Basiseenheid||'—'}</td>
       <td style="font-size:11px">${fmtDate(r.Begindatum)}</td>
-      <td style="font-size:11px;color:${r.Einddatum?'var(--ts-warning)':'inherit'}">${fmtDate(r.Einddatum)}</td>
+      <td style="font-size:11px">${r.Einddatum ? `<span style="color:${regelStatus(r)==='opgezegd'?'var(--ts-muted)':'var(--ts-warning)'}">${fmtDate(r.Einddatum)}${regelStatus(r)==='opgezegd'?' <span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:3px">Opgezegd</span>':''}</span>` : '—'}</td>
       <td style="font-size:11px">${fmtDate(r.Gefactureerd_tm)}</td>
       <td style="font-size:11px;color:var(--ts-muted)">${fmtDate(r.Factureren_vanaf)}</td>
       <td>${isEditing
