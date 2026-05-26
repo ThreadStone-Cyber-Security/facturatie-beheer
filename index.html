@@ -1567,7 +1567,7 @@ function renderRegelsTable(c) {
         <thead>
           <tr>
             <th><input type='checkbox' onclick='toggleAlleCheckboxes(this)' /></th>
-            ${['Regelnummer','Nummer_abonnement','Type_abonnement','Naam','Prijslijst','Itemcode','Basiseenheid','Begindatum','Einddatum','Gefactureerd_tm','Factureren_vanaf','Aantal','Originele_prijs','Afwijkende_prijs','Korting','PrijsInclKorting','Waarde_abonnement','Laatst_gefactureerde_bedrag','Regel_Omschrijving','VolgendeFactuurdatum'].map(f => `
+            ${['Regelnummer','Nummer_abonnement','Type_abonnement','Naam','Prijslijst','Itemcode','Regel_Omschrijving','Basiseenheid','Aantal','Originele_prijs','Afwijkende_prijs','Korting','PrijsInclKorting','Waarde_abonnement','Begindatum','Einddatum','Gefactureerd_tm','Factureren_vanaf','Laatst_gefactureerde_bedrag','VolgendeFactuurdatum'].map(f => `
             <th onclick="sortRegels('${f}')" class="${regelsSortField===f?'sorted':''}">
               ${f==='Regelnummer'?'Regel nr':f==='Nummer_abonnement'?'Abo nr':f==='Type_abonnement'?'Type':f==='Naam'?'Klant':f==='Itemcode'?'Product':f==='Basiseenheid'?'Cyclus':f==='Begindatum'?'Startdatum':f==='Einddatum'?'Einddatum':f==='Gefactureerd_tm'?'Gefact. t/m':f==='Factureren_vanaf'?'Factuur vanaf':f==='Aantal'?'Aantal':f==='Originele_prijs'?'Basisprijs':f==='Afwijkende_prijs'?'Prijs':f==='Korting'?'Korting %':f==='PrijsInclKorting'?'Prijs incl. korting':f==='Waarde_abonnement'?'Regelwaarde':f==='Prijslijst'?'Prijslijst':f==='Regel_Omschrijving'?'Regelomschrijving':f==='VolgendeFactuurdatum'?'Volgende factuur':f}
               <span class="sort-icon">${regelsSortField===f?(regelsSortDir===1?'↑':'↓'):'↕'}</span>
@@ -1661,11 +1661,11 @@ function renderRegelRows() {
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${r.Naam||''}">${r.Naam||'—'}</td>
       <td style="font-size:11px;color:var(--ts-muted)">${prijslijstMap[r.OrganisatieId]||'—'}</td>
       <td><code style="font-size:11px;background:var(--ts-bg);padding:1px 5px;border-radius:3px">${r.Itemcode||'—'}</code></td>
+      <td style="font-size:11px;color:var(--ts-muted)">${prijslijstMap[r.OrganisatieId]||'—'}</td>
+      <td style="min-width:160px">${isEditing
+        ? `<input class="inline-input" id="edit_omschrijving_${r.Regelnummer}" value="${(r.Regel_Omschrijving||'').replace(/"/g,'&quot;')}" style="width:180px" />`
+        : (r.Regel_Omschrijving||'—')}</td>
       <td style="font-size:11px;color:var(--ts-muted)">${r.Basiseenheid||'—'}</td>
-      <td style="font-size:11px">${fmtDate(r.Begindatum)}</td>
-      <td style="font-size:11px">${r.Einddatum ? `<span style="color:${regelStatus(r)==='opgezegd'?'var(--ts-muted)':'var(--ts-warning)'}">${fmtDate(r.Einddatum)}${regelStatus(r)==='opgezegd'?' <span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:3px">Opgezegd</span>':''}</span>` : '—'}</td>
-      <td style="font-size:11px">${fmtDate(r.Gefactureerd_tm)}</td>
-      <td style="font-size:11px;color:var(--ts-muted)">${fmtDate(r.Factureren_vanaf)}</td>
       <td>${isEditing
         ? `<input class="inline-input" id="edit_aantal_${r.Regelnummer}" value="${r.Aantal||0}" type="number" style="width:70px" />`
         : (r.Aantal||0)}</td>
@@ -1683,10 +1683,11 @@ function renderRegelRows() {
         })()}</td>
       <td style="font-size:11px">${prijsInclKorting}</td>
       <td style="font-weight:500">${fmtEur(r.Waarde_abonnement)}</td>
+      <td style="font-size:11px">${fmtDate(r.Begindatum)}</td>
+      <td style="font-size:11px">${r.Einddatum ? `<span style="color:${regelStatus(r)==='opgezegd'?'var(--ts-muted)':'var(--ts-warning)'}">${fmtDate(r.Einddatum)}${regelStatus(r)==='opgezegd'?' <span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:3px">Opgezegd</span>':''}</span>` : '—'}</td>
+      <td style="font-size:11px">${fmtDate(r.Gefactureerd_tm)}</td>
+      <td style="font-size:11px;color:var(--ts-muted)">${fmtDate(r.Factureren_vanaf)}</td>
       <td style="font-size:11px;color:var(--ts-muted)">${r.Laatst_gefactureerde_bedrag ? '€'+parseFloat(r.Laatst_gefactureerde_bedrag).toFixed(2) : '—'}</td>
-      <td style="min-width:160px">${isEditing
-        ? `<input class="inline-input" id="edit_omschrijving_${r.Regelnummer}" value="${(r.Regel_Omschrijving||'').replace(/"/g,'&quot;')}" style="width:180px" />`
-        : (r.Regel_Omschrijving||'—')}</td>
       <td style="white-space:nowrap;font-size:11px">${(() => {
         const vf = volgendeFactuurdatum(r);
         return vf.datum ? `<span style="color:${vf.kleur}">${vf.label}</span>` : `<span style="color:var(--ts-muted)">${vf.label}</span>`;
