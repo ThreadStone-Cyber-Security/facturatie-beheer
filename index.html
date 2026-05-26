@@ -1443,13 +1443,13 @@ let activeSubtab = 'alle';
 
 const SUBTAB_DEFS = [
   { id: 'alle',       label: 'Alle',                filter: r => true },
-  { id: 'soc',        label: 'SOC diensten',         filter: r => matchTermen(r, ['ESET','Thread Defense','TD-365','TD-Ultimate','TD-Advanced']) && r.Type_abonnement !== 'Powered by' },
-  { id: 'vuln',       label: 'Vulnerability Mgmt',   filter: r => matchTermen(r, ['Vuln-mgmt','Vulnerability','SERV-NES-R']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'soc',        label: 'SOC diensten',         filter: r => matchTermen(r, ['ESET','Thread Defense','TD-365','TD-Ultimate','TD-Advanced','SIEM','DIR-365']) && r.Type_abonnement !== 'Powered by' },
+  { id: 'vuln',       label: 'Vulnerability Mgmt',   filter: r => matchTermen(r, ['Vuln-mgmt','Vulnerability','SERV-NES-R','Tenable']) && r.Type_abonnement !== 'Powered by' },
   { id: 'scan',       label: 'Threadscan',           filter: r => matchTermen(r, ['TS-IP','TS-WEB','TS-IPWEB','Threadscan']) && r.Type_abonnement !== 'Powered by' },
   { id: 'elearning',  label: 'E-learning',           filter: r => matchTermen(r, ['Knowbe4','knowbe4','KnowBe4','Phish','phish','Awaretrain','awaretrain']) && r.Type_abonnement !== 'Powered by' },
   { id: 'nis2',       label: 'NIS2',                 filter: r => matchTermen(r, ['NIS2','NIS-2']) && r.Type_abonnement !== 'Powered by' },
   { id: 'compliance', label: 'Compliance',           filter: r => matchTermen(r, ['SecurityOfficer','CISO']) && r.Type_abonnement !== 'Powered by' },
-  { id: 'korting',    label: 'Korting',              filter: r => matchTermen(r, ['KORT','Korting']) },
+  { id: 'korting',    label: 'Korting',              filter: r => matchTermen(r, ['KORT','Korting','Discount']) },
   { id: 'pwrby',      label: 'Powered By',           filter: r => r.Type_abonnement === 'Powered by' },
   { id: 'overig',     label: 'Overig',               filter: r => isOverig(r) },
 ];
