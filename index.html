@@ -2677,14 +2677,14 @@ function isVcrGoedgekeurd(r) {
 }
 
 function isVcrOpen(r) {
-  // Beide types gebruiken nu hetzelfde veld 'Verwerkt'
-  return !r.Verwerkt_in_Abo;
+  // Open als BEIDE velden niet true zijn
+  return !r.Verwerkt_in_Abo && !r.Overgenomen_naar_nacalculatie;
 }
 
 function vcrStatus(r) {
   // Bepaal de verwerkingsstatus van een regel
   const goedgekeurd = isVcrGoedgekeurd(r);
-  const verwerkt = r.Verwerkt_in_Abo;
+  const verwerkt = r.Verwerkt_in_Abo || r.Overgenomen_naar_nacalculatie;
   if (verwerkt) return 'verwerkt';
   if (!goedgekeurd) return 'onderhanden'; // VC niet goedgekeurd
   if (!r.VC_Project) return 'geen_project'; // Goedgekeurd maar geen project
@@ -2846,7 +2846,7 @@ function renderVcrRows() {
   const fmtEur = v => v ? '€'+parseFloat(v).toFixed(2) : '—';
 
   return vcrGefilterd.map(r => {
-    const verwerkt = r.Verwerkt_in_Abo;
+    const verwerkt = r.Verwerkt_in_Abo || r.Overgenomen_naar_nacalculatie;
     const status = vcrStatus(r);
     const statusLabel = status === 'verwerkt'
       ? `<span style="color:var(--ts-success);font-size:12px">✓ Verwerkt</span>`
